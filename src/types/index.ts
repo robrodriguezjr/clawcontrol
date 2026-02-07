@@ -24,6 +24,7 @@ export const DeploymentStatusSchema = z.enum([
 ]);
 
 // Checkpoint for deployment recovery
+// Note: "channel_paired" is kept for backward compatibility with existing deployments
 export type CheckpointName =
   | "server_created"
   | "ssh_key_uploaded"
@@ -107,6 +108,7 @@ export const OpenClawAgentConfigSchema = z.object({
   model: z.string().min(1, "Model identifier is required"),
   channel: z.string().default("telegram"),
   telegramBotToken: z.string().min(1, "Telegram bot token is required"),
+  telegramAllowFrom: z.string().optional(), // Telegram user ID or @username for access control
 });
 
 export type OpenClawAgentConfig = z.infer<typeof OpenClawAgentConfigSchema>;

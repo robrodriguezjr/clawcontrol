@@ -37,7 +37,6 @@ const CHECKPOINT_ORDER: CheckpointName[] = [
   "tailscale_authenticated",
   "tailscale_configured",
   "daemon_started",
-  "channel_paired",
   "completed",
 ];
 
@@ -336,9 +335,6 @@ export class DeploymentOrchestrator {
         break;
       case "daemon_started":
         await this.startDaemon();
-        break;
-      case "channel_paired":
-        await this.pairChannel();
         break;
       case "completed":
         // Final step - nothing to do
@@ -651,48 +647,6 @@ export class DeploymentOrchestrator {
     }
   }
 
-  private async pairChannel(): Promise<void> {
-    const agentConfig = this.deployment.config.openclawAgent;
-
-    if (!agentConfig || agentConfig.channel !== "telegram") {
-      this.reportProgress("channel_paired", "No channel pairing required.");
-      return;
-    }
-
-    const state = readDeploymentState(this.deploymentName);
-    if (!state.serverIp) {
-      throw new Error("Server IP not found");
-    }
-
-    const keyPair = loadSSHKeyPair(this.deploymentName);
-    if (!keyPair) {
-      throw new Error("SSH key pair not found");
-    }
-
-    // Ask the user if they want to pair now
-    const confirmed = await this.onConfirm(
-      `Telegram Channel Pairing\n\n` +
-      `Your OpenClaw agent is running with Telegram configured.\n` +
-      `A terminal will open to pair your Telegram account.\n\n` +
-      `Ready to start pairing?`
-    );
-
-    if (!confirmed) {
-      this.reportProgress("channel_paired", "Channel pairing skipped.");
-      return;
-    }
-
-    // Spawn a real terminal for interactive Telegram pairing
-    this.reportProgress("channel_paired", "Opening terminal for Telegram pairing...");
-    await this.onSpawnTerminal(
-      this.deploymentName,
-      state.serverIp,
-      "source ~/.nvm/nvm.sh && openclaw channels login telegram"
-    );
-
-    this.reportProgress("channel_paired", "Telegram channel paired successfully.");
-  }
-
   // ============ Progress Reporting ============
 
   private reportProgress(step: CheckpointName, message: string): void {
@@ -727,7 +681,6 @@ export class DeploymentOrchestrator {
       tailscale_authenticated: "Authenticating Tailscale",
       tailscale_configured: "Configuring Tailscale",
       daemon_started: "Starting OpenClaw daemon",
-      channel_paired: "Pairing Telegram channel",
       completed: "Deployment complete",
     };
     return descriptions[checkpoint] || checkpoint;

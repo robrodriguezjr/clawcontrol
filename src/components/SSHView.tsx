@@ -69,7 +69,7 @@ export function SSHView({ context }: Props) {
 
   if (deployedDeployments.length === 0) {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="cyan">/ssh</text>
           <text fg="gray"> - SSH into deployment</text>
@@ -95,7 +95,7 @@ export function SSHView({ context }: Props) {
     const terminalDisplayName = getTerminalDisplayName(terminal.app);
 
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="cyan">/ssh</text>
           <text fg="gray"> - Select a deployment to connect</text>
@@ -142,7 +142,7 @@ export function SSHView({ context }: Props) {
 
   if (viewState === "connected") {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="green">/ssh</text>
           <text fg="gray"> - Connected to {connectedDeployment}</text>
@@ -177,7 +177,7 @@ export function SSHView({ context }: Props) {
 
   if (viewState === "error") {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="red">SSH Error</text>
         </box>

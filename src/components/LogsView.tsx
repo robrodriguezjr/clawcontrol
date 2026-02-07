@@ -10,12 +10,38 @@ interface Props {
 
 type ViewState = "selecting" | "loading" | "viewing" | "error";
 
+// Parse journalctl log line into structured format
+function parseLogLine(line: string): { timestamp: string; level: string; message: string } | null {
+  if (!line.trim()) return null;
+
+  // Journalctl format: "Feb 07 12:34:56 hostname openclaw[pid]: message"
+  const match = line.match(/^(\w+\s+\d+\s+[\d:]+)\s+\S+\s+\S+:\s*(.*)$/);
+  if (match) {
+    const message = match[2];
+    let level = "info";
+    if (/error|Error|ERROR|failed|Failed|FAILED/.test(message)) level = "error";
+    else if (/warn|Warning|WARN/.test(message)) level = "warn";
+    else if (/debug|DEBUG/.test(message)) level = "debug";
+    return { timestamp: match[1], level, message };
+  }
+
+  // Fallback for non-standard lines
+  return { timestamp: "", level: "info", message: line };
+}
+
+// Truncate line to fit terminal width
+function truncateLine(line: string, maxWidth: number = 120): string {
+  if (line.length <= maxWidth) return line;
+  return line.substring(0, maxWidth - 3) + "...";
+}
+
 export function LogsView({ context }: Props) {
   const [viewState, setViewState] = useState<ViewState>("selecting");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [lastFetched, setLastFetched] = useState<Date | null>(null);
 
   const sshRef = useRef<SSHConnection | null>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -42,7 +68,8 @@ export function LogsView({ context }: Props) {
       }
 
       const logOutput = await getOpenClawLogs(sshRef.current, 200);
-      setLogs(logOutput.split("\n"));
+      setLogs(logOutput.split("\n").filter((line) => line.trim()));
+      setLastFetched(new Date());
       setViewState("viewing");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -114,7 +141,7 @@ export function LogsView({ context }: Props) {
 
   if (deployedDeployments.length === 0) {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="cyan">/logs</text>
           <text fg="gray"> - View deployment logs</text>
@@ -137,7 +164,7 @@ export function LogsView({ context }: Props) {
 
   if (viewState === "selecting") {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="cyan">/logs</text>
           <text fg="gray"> - Select a deployment</text>
@@ -177,7 +204,7 @@ export function LogsView({ context }: Props) {
 
   if (viewState === "loading") {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <text fg="cyan">Loading logs...</text>
         <text fg="yellow" marginTop={1}>Fetching OpenClaw logs from server...</text>
       </box>
@@ -186,7 +213,7 @@ export function LogsView({ context }: Props) {
 
   if (viewState === "error") {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="red">Error Loading Logs</text>
         </box>
@@ -205,15 +232,24 @@ export function LogsView({ context }: Props) {
     );
   }
 
-  // Viewing state
+  // Viewing state - show all logs, scrollbox handles overflow
+  const visibleLogs = logs;
+
   return (
-    <box flexDirection="column" width="100%" height="100%" padding={1}>
+    <box flexDirection="column" width="100%" padding={1}>
+      {/* Header */}
       <box flexDirection="row" marginBottom={1}>
         <text fg="cyan">Logs: {selectedDeployment.config.name}</text>
         <text fg="gray"> | </text>
         <text fg={autoRefresh ? "green" : "gray"}>
-          Auto-refresh: {autoRefresh ? "ON" : "OFF"}
+          Auto: {autoRefresh ? "ON (5s)" : "OFF"}
         </text>
+        {lastFetched && (
+          <>
+            <text fg="gray"> | </text>
+            <text fg="gray">Fetched: {lastFetched.toLocaleTimeString()}</text>
+          </>
+        )}
       </box>
 
       {/* Log output */}
@@ -222,25 +258,36 @@ export function LogsView({ context }: Props) {
         borderStyle="single"
         borderColor="gray"
         padding={1}
-        flexGrow={1}
-        overflow="hidden"
       >
         <box flexDirection="column">
-          {logs.slice(-30).map((line, i) => {
-            const logColor = line.includes("error") || line.includes("Error")
+          {visibleLogs.map((line, i) => {
+            const parsed = parseLogLine(line);
+            if (!parsed) return null;
+
+            const levelColor = parsed.level === "error"
               ? "red"
-              : line.includes("warn") || line.includes("Warning")
+              : parsed.level === "warn"
               ? "yellow"
+              : parsed.level === "debug"
+              ? "gray"
               : "white";
 
+            const displayLine = parsed.timestamp
+              ? `${parsed.timestamp} ${truncateLine(parsed.message, 100)}`
+              : truncateLine(parsed.message, 120);
+
             return (
-              <text key={i} fg={logColor}>{line}</text>
+              <text key={i} fg={levelColor}>{displayLine}</text>
             );
           })}
         </box>
       </box>
 
-      <text fg="gray" marginTop={1}>R: Refresh | A: Toggle auto-refresh | Esc: Go back</text>
+      <box flexDirection="row" marginTop={1}>
+        <text fg="gray">R: Refresh | A: Toggle auto-refresh | Esc: Back</text>
+        <text fg="gray"> | </text>
+        <text fg="cyan">Showing last {visibleLogs.length} lines</text>
+      </box>
     </box>
   );
 }

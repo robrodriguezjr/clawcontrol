@@ -46,7 +46,7 @@ export function DeployView({ context }: Props) {
 
   if (allDeployments.length === 0) {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="cyan">/deploy</text>
           <text fg="gray"> - Deploy a configuration</text>
@@ -69,7 +69,7 @@ export function DeployView({ context }: Props) {
 
   if (confirmMode) {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="cyan">/deploy</text>
           <text fg="gray"> - Confirm deployment</text>
@@ -95,7 +95,7 @@ export function DeployView({ context }: Props) {
   }
 
   return (
-    <box flexDirection="column" width="100%" height="100%" padding={1}>
+    <box flexDirection="column" width="100%" padding={1}>
       <box flexDirection="row" marginBottom={2}>
         <text fg="cyan">/deploy</text>
         <text fg="gray"> - Select a deployment to deploy</text>

@@ -51,101 +51,134 @@ export function Home({ context }: Props) {
   };
 
   return (
-    <box flexDirection="column" width="100%" height="100%" padding={1}>
-      {/* Header */}
-      <box flexDirection="column" marginBottom={1}>
-        <text fg="cyan">{LOGO}</text>
-        <text fg="gray">Deploy and manage OpenClaw instances with ease</text>
-      </box>
-
-      {/* Quick Start */}
-      <box
-        flexDirection="column"
-        borderStyle="single"
-        borderColor="blue"
-        padding={1}
-        marginBottom={1}
+    <box flexDirection="column" width="100%" height="100%">
+      {/* Scrollable Content */}
+      <scrollbox
+        width="100%"
+        height="100%"
+        scrollY={true}
+        scrollX={false}
+        focused={false}
+        style={{
+          flexGrow: 1,
+          flexShrink: 1,
+          width: "100%",
+          height: "100%",
+          backgroundColor: "#1e293b"
+        }}
+        verticalScrollbarOptions={{
+          showArrows: false,
+        }}
       >
-        <text fg="blue">Quick Start</text>
-        <text fg="white" marginTop={1}>1. Type /new to initialize a new deployment</text>
-        <text fg="white">2. Type /deploy to deploy your configuration</text>
-        <text fg="white">3. Type /status to monitor your deployments</text>
-      </box>
+        <box flexDirection="column" padding={1}>
+          {/* Header */}
+          <box flexDirection="column" marginBottom={1}>
+            <text fg="cyan">{LOGO}</text>
+            <text fg="gray">Deploy and manage OpenClaw instances with ease</text>
+          </box>
 
-      {/* Available Commands */}
-      <box
-        flexDirection="column"
-        borderStyle="single"
-        borderColor="gray"
-        padding={1}
-        marginBottom={1}
-      >
-        <text fg="white">Available Commands</text>
-        <box flexDirection="column" marginTop={1}>
-          {COMMANDS.map((cmd) => (
-            <box key={cmd.name} flexDirection="row">
-              <text fg="yellow" width={12}>{cmd.name}</text>
-              <text fg="gray">{cmd.description}</text>
+          {/* Quick Start */}
+          <box
+            flexDirection="column"
+            borderStyle="single"
+            borderColor="blue"
+            padding={1}
+            marginBottom={1}
+          >
+            <text fg="blue">Quick Start</text>
+            <text fg="white" marginTop={1}>1. Type /new to initialize a new deployment</text>
+            <text fg="white">2. Type /deploy to deploy your configuration</text>
+            <text fg="white">3. Type /status to monitor your deployments</text>
+          </box>
+
+          {/* Available Commands */}
+          <box
+            flexDirection="column"
+            borderStyle="single"
+            borderColor="gray"
+            padding={1}
+            marginBottom={1}
+          >
+            <text fg="white">Available Commands</text>
+            <box flexDirection="column" marginTop={1}>
+              {COMMANDS.map((cmd) => (
+                <box key={cmd.name} flexDirection="row">
+                  <text fg="yellow" width={12}>{cmd.name}</text>
+                  <text fg="gray">{cmd.description}</text>
+                </box>
+              ))}
             </box>
-          ))}
-        </box>
-      </box>
+          </box>
 
-      {/* Deployments Summary */}
-      {context.deployments.length > 0 && (
-        <box
-          flexDirection="column"
-          borderStyle="single"
-          borderColor="green"
-          padding={1}
-          marginBottom={1}
-        >
-          <text fg="green">Your Deployments ({context.deployments.length})</text>
-          <box flexDirection="column" marginTop={1}>
-            {context.deployments.slice(0, 5).map((deployment) => (
-              <box key={deployment.config.name} flexDirection="row">
-                <text fg="white" width={20}>{deployment.config.name}</text>
-                <text
-                  fg={
-                    deployment.state.status === "deployed"
-                      ? "green"
-                      : deployment.state.status === "failed"
-                      ? "red"
-                      : "yellow"
-                  }
-                >
-                  {deployment.state.status}
-                </text>
+          {/* Deployments Summary */}
+          {context.deployments.length > 0 && (
+            <box
+              flexDirection="column"
+              borderStyle="single"
+              borderColor="green"
+              padding={1}
+              marginBottom={1}
+            >
+              <text fg="green">Your Deployments ({context.deployments.length})</text>
+              <box flexDirection="column" marginTop={1}>
+                {context.deployments.map((deployment) => (
+                  <box key={deployment.config.name} flexDirection="row">
+                    <text fg="white" width={20}>{deployment.config.name}</text>
+                    <text
+                      fg={
+                        deployment.state.status === "deployed"
+                          ? "green"
+                          : deployment.state.status === "failed"
+                            ? "red"
+                            : "yellow"
+                      }
+                    >
+                      {deployment.state.status}
+                    </text>
+                  </box>
+                ))}
               </box>
-            ))}
-            {context.deployments.length > 5 && (
-              <text fg="gray">... and {context.deployments.length - 5} more</text>
-            )}
+            </box>
+          )}
+        </box>
+      </scrollbox>
+
+      {/* Sticky Command Input */}
+      <box flexDirection="column" paddingLeft={0} paddingRight={0} paddingTop={1}>
+        {error && (
+          <box marginBottom={1}>
+            <text fg="red">{error}</text>
+          </box>
+        )}
+        <text fg="cyan" marginBottom={0.5}>{"> Enter command:"}</text>
+        <box
+          // borderStyle="single"
+          // borderColor="gray"
+          backgroundColor="#16181D"
+          marginTop={1}
+          paddingTop={1}
+        // paddingTop={0}
+        // paddingBottom={1.1}
+        // paddingLeft={2}
+        // paddingRight={2}
+        >
+          <box width="100%" paddingTop={0}
+            paddingBottom={1.3} paddingLeft={1}>
+            <input
+              value={inputValue}
+              placeholder="Type a command (e.g., /new)..."
+              focused
+              onInput={(value) => setInputValue(value)}
+              onSubmit={(value) => {
+                if (typeof value === "string" && typeof value.trim === "function" && value.trim()) {
+                  handleCommand(value as string);
+                  setInputValue("");
+                }
+              }}
+            />
           </box>
         </box>
-      )}
-
-      {/* Error Display */}
-      {error && (
-        <box marginBottom={1}>
-          <text fg="red">{error}</text>
-        </box>
-      )}
-
-      {/* Command Input */}
-      <text fg="cyan" marginTop={1}>{"> Enter command:"}</text>
-      <input
-        value={inputValue}
-        placeholder="Type a command (e.g., /new)..."
-        focused
-        onInput={(value) => setInputValue(value)}
-        onSubmit={(value) => {
-          if (value.trim()) {
-            handleCommand(value);
-            setInputValue("");
-          }
-        }}
-      />
+      </box>
     </box>
   );
 }

@@ -34,6 +34,7 @@ type Step =
   | "ai_api_key"
   | "model"
   | "telegram_bot_token"
+  | "telegram_allow_from"
   | "confirm"
   | "complete";
 
@@ -45,6 +46,7 @@ const STEP_LIST: Step[] = [
   "ai_api_key",
   "model",
   "telegram_bot_token",
+  "telegram_allow_from",
   "confirm",
 ];
 
@@ -57,16 +59,17 @@ export function NewDeployment({ context }: Props) {
   const [aiApiKey, setAiApiKey] = useState("");
   const [model, setModel] = useState("");
   const [telegramBotToken, setTelegramBotToken] = useState("");
+  const [telegramAllowFrom, setTelegramAllowFrom] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [selectedProviderIndex, setSelectedProviderIndex] = useState(0);
 
   // Use refs to avoid stale closures in useKeyboard callback
   const stateRef = useRef({
-    name, provider, apiKey, aiProvider, aiApiKey, model, telegramBotToken, step,
+    name, provider, apiKey, aiProvider, aiApiKey, model, telegramBotToken, telegramAllowFrom, step,
   });
   stateRef.current = {
-    name, provider, apiKey, aiProvider, aiApiKey, model, telegramBotToken, step,
+    name, provider, apiKey, aiProvider, aiApiKey, model, telegramBotToken, telegramAllowFrom, step,
   };
 
   debugLog(`RENDER: step=${step}, apiKey.length=${apiKey?.length ?? "null"}`);
@@ -106,6 +109,12 @@ export function NewDeployment({ context }: Props) {
       return;
     }
 
+    if (!s.telegramAllowFrom.trim()) {
+      setError("Telegram user ID is required for access control.");
+      setStep("telegram_allow_from");
+      return;
+    }
+
     try {
       const config: DeploymentConfig = {
         name: s.name,
@@ -124,6 +133,7 @@ export function NewDeployment({ context }: Props) {
           model: s.model,
           channel: "telegram",
           telegramBotToken: s.telegramBotToken,
+          telegramAllowFrom: s.telegramAllowFrom,
         },
       };
 
@@ -143,7 +153,7 @@ export function NewDeployment({ context }: Props) {
       if (key.name === "y" || key.name === "return") {
         handleConfirmFromRef();
       } else if (key.name === "n" || key.name === "escape") {
-        setStep("telegram_bot_token");
+        setStep("telegram_allow_from");
       }
     } else if (currentState.step === "complete") {
       context.navigateTo("home");
@@ -225,6 +235,15 @@ export function NewDeployment({ context }: Props) {
   const handleTelegramBotTokenSubmit = () => {
     if (!telegramBotToken.trim()) {
       setError("Telegram bot token is required");
+      return;
+    }
+    setError(null);
+    setStep("telegram_allow_from");
+  };
+
+  const handleTelegramAllowFromSubmit = () => {
+    if (!telegramAllowFrom.trim()) {
+      setError("Telegram user ID is required for access control");
       return;
     }
     setError(null);
@@ -479,10 +498,48 @@ export function NewDeployment({ context }: Props) {
           </box>
         );
 
+      case "telegram_allow_from":
+        return (
+          <box flexDirection="column">
+            <text fg="cyan">Step 8: Telegram Access Control</text>
+            <text fg="gray" marginTop={1}>
+              Enter your Telegram user ID or @username to restrict bot access.
+            </text>
+            <text fg="gray">
+              Only messages from this user will be processed by the agent.
+            </text>
+            <text fg="blue" marginTop={1}>
+              Find your user ID: https://docs.openclaw.ai/channels/telegram#finding-your-telegram-user-id
+            </text>
+            <text fg="blue">
+              Learn more: https://docs.openclaw.ai/channels/telegram#access-control-dms-+-groups
+            </text>
+            <text fg="white" marginTop={2}>User ID or @username:</text>
+            <input
+              value={telegramAllowFrom}
+              placeholder="123456789 or @yourusername"
+              focused
+              onInput={(value) => {
+                if (typeof value === "string" && stateRef.current.step === "telegram_allow_from") {
+                  setTelegramAllowFrom(value);
+                }
+              }}
+              onSubmit={() => handleTelegramAllowFromSubmit()}
+              onKeyDown={(e) => {
+                if (e.name === "escape") {
+                  setStep("telegram_bot_token");
+                }
+              }}
+            />
+            {error && <text fg="red" marginTop={1}>{error}</text>}
+            <text fg="gray" marginTop={2}>Press Enter to continue, Esc to go back</text>
+          </box>
+        );
+
       case "confirm":
         return (
           <box flexDirection="column">
-            <text fg="cyan">Step 8: Confirm Configuration</text>
+            <text fg="cyan">Step 9: Confirm Configuration</text>
             <box
               flexDirection="column"
               borderStyle="single"
@@ -530,6 +587,10 @@ export function NewDeployment({ context }: Props) {
                 <text fg="gray" width={20}>Bot Token:</text>
                 <text fg="white">{telegramBotToken ? `${telegramBotToken.substring(0, 12)}...` : "N/A"}</text>
               </box>
+              <box flexDirection="row">
+                <text fg="gray" width={20}>Allow From:</text>
+                <text fg="white">{telegramAllowFrom || "N/A"}</text>
+              </box>
             </box>
             {error && <text fg="red" marginTop={1}>{error}</text>}
             <text fg="yellow" marginTop={2}>Press Y to confirm, N to go back</text>
@@ -555,7 +616,7 @@ export function NewDeployment({ context }: Props) {
                 AI: {aiProvider} / {model}
               </text>
               <text fg="gray">
-                Channel: Telegram (pairing will happen during /deploy)
+                Channel: Telegram (allowed: {telegramAllowFrom})
               </text>
             </box>
             <text fg="cyan" marginTop={2}>Next step: Run /deploy to deploy this configuration</text>
@@ -566,7 +627,7 @@ export function NewDeployment({ context }: Props) {
   };
 
   return (
-    <box flexDirection="column" width="100%" height="100%" padding={1}>
+    <box flexDirection="column" width="100%" padding={1}>
       {/* Header */}
       <box flexDirection="row" marginBottom={2}>
         <text fg="cyan">/new</text>

@@ -73,7 +73,7 @@ export function StatusView({ context }: Props) {
 
   if (deployments.length === 0) {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="cyan">/status</text>
           <text fg="gray"> - Deployment Status</text>
@@ -98,7 +98,7 @@ export function StatusView({ context }: Props) {
   const selectedHealth = healthStatus.get(selectedDeployment.config.name);
 
   return (
-    <box flexDirection="column" width="100%" height="100%" padding={1}>
+    <box flexDirection="column" width="100%" padding={1}>
       <box flexDirection="row" marginBottom={2}>
         <text fg="cyan">/status</text>
         <text fg="gray"> - Deployment Status</text>
@@ -112,7 +112,7 @@ export function StatusView({ context }: Props) {
         padding={1}
         marginBottom={1}
       >
-        <text fg="white" marginBottom={1}>Deployments</text>
+        <text fg="white" marginBottom={1}>Deployments ({deployments.length})</text>
         {deployments.map((deployment, index) => {
           const isSelected = index === selectedIndex;
           const status = deployment.state.status;
@@ -227,26 +227,15 @@ export function StatusView({ context }: Props) {
         )}
       </box>
 
-      {/* Checkpoints */}
+      {/* Checkpoints - show summary instead of full list */}
       {selectedDeployment.state.checkpoints.length > 0 && (
-        <box
-          flexDirection="column"
-          borderStyle="single"
-          borderColor="gray"
-          padding={1}
-          marginBottom={1}
-        >
-          <text fg="white">Completed Checkpoints</text>
-          {selectedDeployment.state.checkpoints.map((cp) => (
-            <box key={cp.name} flexDirection="row">
-              <text fg="green">✓ </text>
-              <text fg="gray">{cp.name}</text>
-            </box>
-          ))}
+        <box flexDirection="row" marginBottom={1}>
+          <text fg="gray">Checkpoints: </text>
+          <text fg="green">{selectedDeployment.state.checkpoints.length} completed</text>
         </box>
       )}
 
-      <text fg="gray">Arrow keys to select | Enter to check health | Esc to go back</text>
+      <text fg="gray">Up/Down: Select | Enter: Health check | Esc: Back</text>
     </box>
   );
 }

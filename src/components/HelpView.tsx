@@ -11,7 +11,7 @@ export function HelpView({ context }: Props) {
   });
 
   return (
-    <box flexDirection="column" width="100%" height="100%" padding={1}>
+    <box flexDirection="column" width="100%" padding={1}>
       <box flexDirection="row" marginBottom={2}>
         <text fg="cyan">/help</text>
         <text fg="gray"> - ClawControl Help</text>

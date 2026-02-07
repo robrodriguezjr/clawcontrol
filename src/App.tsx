@@ -78,8 +78,26 @@ export function App() {
   };
 
   return (
-    <box flexDirection="column" width="100%" height="100%">
+    <scrollbox
+      width="100%"
+      height="100%"
+      scrollY={true}
+      scrollX={false}
+      focused={false}
+      style={{
+        flexGrow: 1,
+        flexShrink: 1,
+        width: "100%",
+        height: "100%",
+        backgroundColor: "#1e293b"
+      }}
+      verticalScrollbarOptions={{
+        showArrows: false,
+      }}
+    >
       {renderView()}
-    </box>
+    </scrollbox>
   );
 }
+
+

@@ -90,7 +90,7 @@ export function DestroyView({ context }: Props) {
 
   if (deployments.length === 0) {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="red">/destroy</text>
           <text fg="gray"> - Destroy deployment</text>
@@ -112,7 +112,7 @@ export function DestroyView({ context }: Props) {
 
   if (viewState === "selecting") {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="red">/destroy</text>
           <text fg="gray"> - Select a deployment to destroy</text>
@@ -155,7 +155,7 @@ export function DestroyView({ context }: Props) {
 
   if (viewState === "confirming") {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box flexDirection="row" marginBottom={2}>
           <text fg="red">Confirm Destruction</text>
         </box>
@@ -210,7 +210,7 @@ export function DestroyView({ context }: Props) {
 
   if (viewState === "destroying") {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <text fg="red">Destroying deployment...</text>
         <text fg="yellow" marginTop={1}>Deleting server and cleaning up resources...</text>
       </box>
@@ -219,7 +219,7 @@ export function DestroyView({ context }: Props) {
 
   if (viewState === "success") {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box
           flexDirection="column"
           borderStyle="single"
@@ -239,7 +239,7 @@ export function DestroyView({ context }: Props) {
 
   if (viewState === "error") {
     return (
-      <box flexDirection="column" width="100%" height="100%" padding={1}>
+      <box flexDirection="column" width="100%" padding={1}>
         <box
           flexDirection="column"
           borderStyle="single"

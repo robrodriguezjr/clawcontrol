@@ -270,27 +270,88 @@ export async function configureOpenClaw(
       },
       ...customConfig?.gateway,
     },
+    commands: {
+      native: "auto",
+      nativeSkills: "auto",
+    },
+    messages: {
+      ackReactionScope: "group-mentions",
+    },
   };
 
   // Add agent/model config if provided
   if (agentConfig) {
+    // Build the model key (e.g., "openrouter/moonshotai/kimi-k2.5")
+    const modelKey = `${agentConfig.aiProvider}/${agentConfig.model}`;
+
     config.agents = {
-      default: {
-        provider: agentConfig.aiProvider,
-        model: agentConfig.model,
+      defaults: {
+        maxConcurrent: 4,
+        subagents: {
+          maxConcurrent: 8,
+        },
+        workspace: "/root/.openclaw/workspace",
+        models: {
+          [`${agentConfig.aiProvider}/auto`]: {
+            alias: agentConfig.aiProvider.charAt(0).toUpperCase() + agentConfig.aiProvider.slice(1),
+          },
+          [modelKey]: {},
+        },
+        model: {
+          primary: modelKey,
+        },
+      },
+    };
+
+    // Add auth profile for the provider
+    config.auth = {
+      profiles: {
+        [`${agentConfig.aiProvider}:default`]: {
+          provider: agentConfig.aiProvider,
+          mode: "api_key",
+        },
       },
     };
 
     // Add channel config
     if (agentConfig.channel === "telegram" && agentConfig.telegramBotToken) {
+      const telegramConfig: Record<string, unknown> = {
+        enabled: true,
+        botToken: agentConfig.telegramBotToken,
+      };
+
+      // Add allowFrom for access control if provided
+      if (agentConfig.telegramAllowFrom) {
+        telegramConfig.allowFrom = [agentConfig.telegramAllowFrom];
+      }
+
       config.channels = {
-        telegram: {
-          enabled: true,
-          botToken: agentConfig.telegramBotToken,
+        telegram: telegramConfig,
+      };
+
+      // Enable the telegram plugin
+      config.plugins = {
+        entries: {
+          telegram: {
+            enabled: true,
+          },
         },
       };
     }
   }
+
+  // Add wizard and meta timestamps
+  const now = new Date().toISOString();
+  config.wizard = {
+    lastRunAt: now,
+    lastRunVersion: "2026.2.3-1",
+    lastRunCommand: "onboard",
+    lastRunMode: "local",
+  };
+  config.meta = {
+    lastTouchedVersion: "2026.2.3-1",
+    lastTouchedAt: now,
+  };
 
   // Write configuration file
   const configJson = JSON.stringify(config, null, 2);
