@@ -1,5 +1,5 @@
 import type { SSHConnection } from "../ssh.js";
-import type { OpenClawConfig } from "../../types/index.js";
+import type { OpenClawConfig, OpenClawAgentConfig } from "../../types/index.js";
 
 /**
  * Execute a command and throw if it fails
@@ -233,17 +233,18 @@ export async function installOpenClaw(ssh: SSHConnection): Promise<void> {
 }
 
 /**
- * Configure OpenClaw with browser and gateway settings
+ * Configure OpenClaw with browser, gateway, agent, and channel settings
  */
 export async function configureOpenClaw(
   ssh: SSHConnection,
-  customConfig?: OpenClawConfig
+  customConfig?: OpenClawConfig,
+  agentConfig?: OpenClawAgentConfig
 ): Promise<void> {
   // Ensure config directory exists
   await ssh.exec("mkdir -p ~/.openclaw");
 
   // Build the configuration object
-  const config = {
+  const config: Record<string, unknown> = {
     browser: {
       enabled: true,
       remoteCdpTimeoutMs: 15000,
@@ -270,6 +271,26 @@ export async function configureOpenClaw(
       ...customConfig?.gateway,
     },
   };
+
+  // Add agent/model config if provided
+  if (agentConfig) {
+    config.agents = {
+      default: {
+        provider: agentConfig.aiProvider,
+        model: agentConfig.model,
+      },
+    };
+
+    // Add channel config
+    if (agentConfig.channel === "telegram" && agentConfig.telegramBotToken) {
+      config.channels = {
+        telegram: {
+          enabled: true,
+          botToken: agentConfig.telegramBotToken,
+        },
+      };
+    }
+  }
 
   // Write configuration file
   const configJson = JSON.stringify(config, null, 2);
@@ -404,6 +425,148 @@ export async function configureTailscaleServe(ssh: SSHConnection): Promise<strin
   );
 
   return tailscaleIp;
+}
+
+/**
+ * Write environment file with AI provider API key for the OpenClaw daemon
+ */
+export async function writeOpenClawEnvFile(
+  ssh: SSHConnection,
+  agentConfig: OpenClawAgentConfig
+): Promise<void> {
+  // Map provider name to environment variable name
+  const envVarMap: Record<string, string> = {
+    anthropic: "ANTHROPIC_API_KEY",
+    openai: "OPENAI_API_KEY",
+    openrouter: "OPENROUTER_API_KEY",
+    google: "GOOGLE_API_KEY",
+    groq: "GROQ_API_KEY",
+  };
+
+  const providerKey = agentConfig.aiProvider.toLowerCase();
+  const envVarName = envVarMap[providerKey] || `${agentConfig.aiProvider.toUpperCase()}_API_KEY`;
+
+  const envContent = `# OpenClaw AI Provider Environment
+${envVarName}=${agentConfig.aiApiKey}
+`;
+
+  await ssh.exec("mkdir -p ~/.openclaw");
+
+  await execOrFail(
+    ssh,
+    `cat > ~/.openclaw/.env << 'EOFENV'
+${envContent}
+EOFENV`,
+    "Failed to write OpenClaw environment file"
+  );
+
+  // Set secure permissions
+  await ssh.exec("chmod 600 ~/.openclaw/.env");
+
+  // Verify env was written
+  const verifyResult = await ssh.exec("cat ~/.openclaw/.env");
+  if (verifyResult.code !== 0 || !verifyResult.stdout.includes(envVarName)) {
+    throw new Error("OpenClaw environment file verification failed");
+  }
+}
+
+/**
+ * Programmatically install and enable the OpenClaw systemd daemon service
+ */
+export async function installOpenClawDaemon(ssh: SSHConnection): Promise<void> {
+  const nvmPrefix = "source ~/.nvm/nvm.sh &&";
+
+  // Resolve the openclaw binary path
+  const whichResult = await ssh.exec(`${nvmPrefix} which openclaw`);
+  if (whichResult.code !== 0 || !whichResult.stdout.trim()) {
+    throw new Error("OpenClaw binary not found. Is it installed?");
+  }
+  const openclawBin = whichResult.stdout.trim();
+
+  // Resolve the node binary path (needed for the service)
+  const nodeResult = await ssh.exec(`${nvmPrefix} which node`);
+  if (nodeResult.code !== 0 || !nodeResult.stdout.trim()) {
+    throw new Error("Node binary not found.");
+  }
+  const nodeBin = nodeResult.stdout.trim();
+  const nodeBinDir = nodeBin.substring(0, nodeBin.lastIndexOf("/"));
+
+  // Build the systemd service unit
+  const serviceUnit = `[Unit]
+Description=OpenClaw Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+EnvironmentFile=/root/.openclaw/.env
+Environment=PATH=${nodeBinDir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/root
+Environment=NVM_DIR=/root/.nvm
+ExecStart=${openclawBin} gateway --port 18789
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+`;
+
+  // Write the service file
+  await execOrFail(
+    ssh,
+    `cat > /etc/systemd/system/openclaw.service << 'EOFSERVICE'
+${serviceUnit}
+EOFSERVICE`,
+    "Failed to write OpenClaw systemd service"
+  );
+
+  // Reload systemd
+  await execOrFail(ssh, "systemctl daemon-reload", "Failed to reload systemd");
+
+  // Enable the service
+  await execOrFail(ssh, "systemctl enable openclaw", "Failed to enable OpenClaw service");
+}
+
+/**
+ * Start the OpenClaw daemon and verify it is running
+ */
+export async function startOpenClawDaemon(ssh: SSHConnection): Promise<void> {
+  await execOrFail(ssh, "systemctl start openclaw", "Failed to start OpenClaw daemon");
+
+  // Wait a moment for service to stabilize
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+
+  // Verify the daemon is running
+  const statusResult = await ssh.exec("systemctl is-active openclaw || true");
+  if (!statusResult.stdout.includes("active")) {
+    const logs = await ssh.exec("journalctl -u openclaw -n 20 --no-pager || true");
+    throw new Error(`OpenClaw daemon not running after start. Logs: ${logs.stdout}`);
+  }
+}
+
+/**
+ * Run Telegram channel pairing via SSH
+ * Returns pairing instructions/URL for the user
+ */
+export async function pairTelegramChannel(ssh: SSHConnection): Promise<string> {
+  const nvmPrefix = "source ~/.nvm/nvm.sh &&";
+
+  // Run the channel login command for Telegram and capture output
+  const result = await ssh.exec(
+    `${nvmPrefix} openclaw channels login telegram 2>&1 || true`
+  );
+
+  const output = result.stdout + result.stderr;
+
+  // Return the full output so the user can follow the pairing instructions
+  if (output.trim()) {
+    return output.trim();
+  }
+
+  return "Telegram channel pairing initiated. Check the OpenClaw gateway logs for pairing status.";
 }
 
 /**

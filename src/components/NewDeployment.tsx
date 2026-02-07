@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { useKeyboard } from "@opentui/react";
 import { appendFileSync } from "fs";
 import { homedir } from "os";
@@ -26,57 +26,105 @@ interface Props {
   context: AppContext;
 }
 
-type Step = "name" | "provider" | "api_key" | "custom_config" | "confirm" | "complete";
+type Step =
+  | "name"
+  | "provider"
+  | "api_key"
+  | "ai_provider"
+  | "ai_api_key"
+  | "model"
+  | "telegram_bot_token"
+  | "confirm"
+  | "complete";
+
+const STEP_LIST: Step[] = [
+  "name",
+  "provider",
+  "api_key",
+  "ai_provider",
+  "ai_api_key",
+  "model",
+  "telegram_bot_token",
+  "confirm",
+];
 
 export function NewDeployment({ context }: Props) {
   const [step, setStep] = useState<Step>("name");
   const [name, setName] = useState("");
   const [provider, setProvider] = useState<Provider>("hetzner");
   const [apiKey, setApiKey] = useState("");
-  const [customConfig, setCustomConfig] = useState("");
+  const [aiProvider, setAiProvider] = useState("");
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [model, setModel] = useState("");
+  const [telegramBotToken, setTelegramBotToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [selectedProviderIndex, setSelectedProviderIndex] = useState(0);
 
   // Use refs to avoid stale closures in useKeyboard callback
-  const stateRef = useRef({ name, provider, apiKey, customConfig, step });
-  stateRef.current = { name, provider, apiKey, customConfig, step };
+  const stateRef = useRef({
+    name, provider, apiKey, aiProvider, aiApiKey, model, telegramBotToken, step,
+  });
+  stateRef.current = {
+    name, provider, apiKey, aiProvider, aiApiKey, model, telegramBotToken, step,
+  };
 
-  // Debug: log every render with state values
-  debugLog(`RENDER: step=${step}, apiKey.length=${apiKey?.length ?? 'null'}, apiKey.type=${typeof apiKey}, apiKey.first10=${String(apiKey).substring(0, 10)}`);
+  debugLog(`RENDER: step=${step}, apiKey.length=${apiKey?.length ?? "null"}`);
 
-  // Ref-based confirm handler (defined before useKeyboard to avoid hoisting issues)
   const handleConfirmFromRef = () => {
-    const { name: currentName, provider: currentProvider, apiKey: currentApiKey, customConfig: currentCustomConfig } = stateRef.current;
+    const s = stateRef.current;
 
-    debugLog(`handleConfirmFromRef CALLED:`);
-    debugLog(`  stateRef.current.apiKey.length=${currentApiKey?.length ?? 'null'}`);
-    debugLog(`  stateRef.current.apiKey.type=${typeof currentApiKey}`);
-    debugLog(`  stateRef.current.apiKey.first10=${String(currentApiKey).substring(0, 10)}`);
-    debugLog(`  direct apiKey state.length=${apiKey?.length ?? 'null'}`);
-    debugLog(`  direct apiKey state.type=${typeof apiKey}`);
+    debugLog(`handleConfirmFromRef CALLED: apiKey.length=${s.apiKey?.length ?? "null"}`);
 
-    // Defensive check: ensure API key is present for Hetzner deployments
-    if (currentProvider === "hetzner" && !currentApiKey.trim()) {
-      debugLog(`  FAILED: apiKey is empty or not a string with trim()`);
+    if (s.provider === "hetzner" && !s.apiKey.trim()) {
       setError("Hetzner API key is missing. Please go back and re-enter your API key.");
       setStep("api_key");
       return;
     }
-    debugLog(`  PASSED: apiKey check passed`);
+
+    if (!s.aiProvider.trim()) {
+      setError("AI provider is required.");
+      setStep("ai_provider");
+      return;
+    }
+
+    if (!s.aiApiKey.trim()) {
+      setError("AI provider API key is required.");
+      setStep("ai_api_key");
+      return;
+    }
+
+    if (!s.model.trim()) {
+      setError("Model is required.");
+      setStep("model");
+      return;
+    }
+
+    if (!s.telegramBotToken.trim()) {
+      setError("Telegram bot token is required.");
+      setStep("telegram_bot_token");
+      return;
+    }
 
     try {
       const config: DeploymentConfig = {
-        name: currentName,
-        provider: currentProvider,
+        name: s.name,
+        provider: s.provider,
         createdAt: new Date().toISOString(),
-        hetzner: currentProvider === "hetzner" ? {
-          apiKey: currentApiKey,
+        hetzner: s.provider === "hetzner" ? {
+          apiKey: s.apiKey,
           serverType: "cpx11",
           location: "ash",
           image: "ubuntu-24.04",
         } : undefined,
-        openclawConfig: currentCustomConfig.trim() ? JSON.parse(currentCustomConfig) : undefined,
+        openclawConfig: undefined,
+        openclawAgent: {
+          aiProvider: s.aiProvider,
+          aiApiKey: s.aiApiKey,
+          model: s.model,
+          channel: "telegram",
+          telegramBotToken: s.telegramBotToken,
+        },
       };
 
       createDeployment(config);
@@ -90,13 +138,12 @@ export function NewDeployment({ context }: Props) {
   // Handle keyboard for confirm and complete steps
   useKeyboard((key) => {
     const currentState = stateRef.current;
-    debugLog(`useKeyboard: key=${key.name}, currentState.step=${currentState.step}, currentState.apiKey.length=${currentState.apiKey?.length ?? 'null'}`);
+    debugLog(`useKeyboard: key=${key.name}, step=${currentState.step}`);
     if (currentState.step === "confirm") {
       if (key.name === "y" || key.name === "return") {
-        debugLog(`  Calling handleConfirmFromRef...`);
         handleConfirmFromRef();
       } else if (key.name === "n" || key.name === "escape") {
-        setStep("custom_config");
+        setStep("telegram_bot_token");
       }
     } else if (currentState.step === "complete") {
       context.navigateTo("home");
@@ -119,15 +166,13 @@ export function NewDeployment({ context }: Props) {
   };
 
   const handleApiKeySubmit = async () => {
-    debugLog(`handleApiKeySubmit CALLED: apiKey.length=${apiKey?.length ?? 'null'}, type=${typeof apiKey}`);
+    debugLog(`handleApiKeySubmit CALLED: apiKey.length=${apiKey?.length ?? "null"}`);
 
     if (!apiKey.trim()) {
-      debugLog(`  FAILED: apiKey.trim() is falsy`);
       setError("API key is required");
       return;
     }
 
-    debugLog(`  PASSED initial check, starting validation...`);
     setIsValidating(true);
     setError(null);
 
@@ -136,65 +181,74 @@ export function NewDeployment({ context }: Props) {
       const isValid = await client.validateAPIKey();
 
       if (!isValid) {
-        debugLog(`  FAILED: Hetzner API returned invalid`);
         setError("Invalid API key. Please check and try again.");
         setIsValidating(false);
         return;
       }
 
-      debugLog(`  SUCCESS: Moving to custom_config step. apiKey.length=${apiKey.length}`);
-      setStep("custom_config");
+      debugLog(`  SUCCESS: Moving to ai_provider step`);
+      setStep("ai_provider");
     } catch (err) {
-      debugLog(`  ERROR: ${err instanceof Error ? err.message : String(err)}`);
       setError(`Failed to validate API key: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsValidating(false);
     }
   };
 
-  const handleCustomConfigSubmit = () => {
-    debugLog(`handleCustomConfigSubmit CALLED: apiKey.length=${apiKey?.length ?? 'null'}, step=${step}`);
-    if (customConfig.trim()) {
-      try {
-        JSON.parse(customConfig);
-      } catch {
-        setError("Invalid JSON format for custom config");
-        return;
-      }
+  const handleAiProviderSubmit = () => {
+    if (!aiProvider.trim()) {
+      setError("AI provider is required");
+      return;
     }
     setError(null);
-    debugLog(`  Moving to confirm step. apiKey.length=${apiKey?.length ?? 'null'}`);
+    setStep("ai_api_key");
+  };
+
+  const handleAiApiKeySubmit = () => {
+    if (!aiApiKey.trim()) {
+      setError("AI provider API key is required");
+      return;
+    }
+    setError(null);
+    setStep("model");
+  };
+
+  const handleModelSubmit = () => {
+    if (!model.trim()) {
+      setError("Model identifier is required");
+      return;
+    }
+    setError(null);
+    setStep("telegram_bot_token");
+  };
+
+  const handleTelegramBotTokenSubmit = () => {
+    if (!telegramBotToken.trim()) {
+      setError("Telegram bot token is required");
+      return;
+    }
+    setError(null);
     setStep("confirm");
   };
 
-  const handleConfirm = () => {
-    // Defensive check: ensure API key is present for Hetzner deployments
-    if (provider === "hetzner" && !apiKey.trim()) {
-      setError("Hetzner API key is missing. Please go back and re-enter your API key.");
-      setStep("api_key");
-      return;
-    }
+  const getAiProviderHint = (): string => {
+    const p = aiProvider.trim().toLowerCase();
+    if (p === "anthropic") return "ANTHROPIC_API_KEY";
+    if (p === "openai") return "OPENAI_API_KEY";
+    if (p === "openrouter") return "OPENROUTER_API_KEY";
+    if (p === "google") return "GOOGLE_API_KEY";
+    if (p === "groq") return "GROQ_API_KEY";
+    return "API Key";
+  };
 
-    try {
-      const config: DeploymentConfig = {
-        name,
-        provider,
-        createdAt: new Date().toISOString(),
-        hetzner: provider === "hetzner" ? {
-          apiKey,
-          serverType: "cpx11",
-          location: "ash",
-          image: "ubuntu-24.04",
-        } : undefined,
-        openclawConfig: customConfig.trim() ? JSON.parse(customConfig) : undefined,
-      };
-
-      createDeployment(config);
-      context.refreshDeployments();
-      setStep("complete");
-    } catch (err) {
-      setError(`Failed to create deployment: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  const getModelHint = (): string => {
+    const p = aiProvider.trim().toLowerCase();
+    if (p === "anthropic") return "e.g. claude-sonnet-4-20250514, claude-3-5-haiku-20241022";
+    if (p === "openai") return "e.g. gpt-4o, gpt-4o-mini, o1-preview";
+    if (p === "openrouter") return "e.g. anthropic/claude-sonnet-4-20250514, openai/gpt-4o";
+    if (p === "google") return "e.g. gemini-2.0-flash, gemini-1.5-pro";
+    if (p === "groq") return "e.g. llama-3.3-70b-versatile";
+    return "e.g. claude-sonnet-4-20250514";
   };
 
   const renderStep = () => {
@@ -212,8 +266,7 @@ export function NewDeployment({ context }: Props) {
               placeholder="my-openclaw-server"
               focused
               onInput={(value) => {
-                // Only update if we're still on the name step
-                if (typeof value === 'string' && stateRef.current.step === 'name') {
+                if (typeof value === "string" && stateRef.current.step === "name") {
                   setName(value);
                 }
               }}
@@ -280,17 +333,12 @@ export function NewDeployment({ context }: Props) {
               placeholder="Enter your Hetzner API key..."
               focused
               onInput={(value) => {
-                debugLog(`API_KEY onInput: value.type=${typeof value}, value.length=${typeof value === 'string' ? value.length : 'N/A'}, isString=${typeof value === 'string'}, currentStep=${stateRef.current.step}`);
-                // Only update apiKey if we're still on the api_key step
-                // This prevents the unmount event from clearing the value
-                if (typeof value === 'string' && stateRef.current.step === 'api_key') {
+                debugLog(`API_KEY onInput: value.type=${typeof value}, currentStep=${stateRef.current.step}`);
+                if (typeof value === "string" && stateRef.current.step === "api_key") {
                   setApiKey(value);
-                } else {
-                  debugLog(`  IGNORED: step changed or non-string value`);
                 }
               }}
               onSubmit={() => {
-                debugLog(`API_KEY onSubmit called`);
                 if (!isValidating) {
                   handleApiKeySubmit();
                 }
@@ -306,30 +354,27 @@ export function NewDeployment({ context }: Props) {
           </box>
         );
 
-      case "custom_config":
+      case "ai_provider":
         return (
           <box flexDirection="column">
-            <text fg="cyan">Step 4: Custom OpenClaw Config (Optional)</text>
+            <text fg="cyan">Step 4: AI Provider</text>
             <text fg="gray" marginTop={1}>
-              Enter custom OpenClaw configuration as JSON, or leave empty for defaults.
+              Enter the name of your AI model provider.
             </text>
-            <text fg="blue" marginTop={1}>See docs: https://docs.openclaw.ai/</text>
-            <text fg="white" marginTop={2}>Config (JSON, optional):</text>
+            <text fg="blue" marginTop={1}>
+              Common providers: anthropic, openai, openrouter, google, groq
+            </text>
+            <text fg="white" marginTop={2}>Provider:</text>
             <input
-              value={customConfig}
-              placeholder='{"gateway": {"port": 18789}}'
+              value={aiProvider}
+              placeholder="anthropic"
               focused
               onInput={(value) => {
-                debugLog(`CUSTOM_CONFIG onInput: value.type=${typeof value}, apiKey.length=${apiKey?.length ?? 'null'}, currentStep=${stateRef.current.step}`);
-                // Only update if we're still on the custom_config step
-                if (typeof value === 'string' && stateRef.current.step === 'custom_config') {
-                  setCustomConfig(value);
+                if (typeof value === "string" && stateRef.current.step === "ai_provider") {
+                  setAiProvider(value);
                 }
               }}
-              onSubmit={() => {
-                debugLog(`CUSTOM_CONFIG onSubmit: apiKey.length=${apiKey?.length ?? 'null'}`);
-                handleCustomConfigSubmit();
-              }}
+              onSubmit={() => handleAiProviderSubmit()}
               onKeyDown={(e) => {
                 if (e.name === "escape") {
                   setStep("api_key");
@@ -337,14 +382,107 @@ export function NewDeployment({ context }: Props) {
               }}
             />
             {error && <text fg="red" marginTop={1}>{error}</text>}
-            <text fg="gray" marginTop={2}>Press Enter to continue (leave empty for defaults)</text>
+            <text fg="gray" marginTop={2}>Press Enter to continue, Esc to go back</text>
+          </box>
+        );
+
+      case "ai_api_key":
+        return (
+          <box flexDirection="column">
+            <text fg="cyan">Step 5: AI Provider API Key</text>
+            <text fg="gray" marginTop={1}>
+              Enter your {aiProvider || "AI provider"} API key ({getAiProviderHint()}).
+            </text>
+            <text fg="white" marginTop={2}>{getAiProviderHint()}:</text>
+            <input
+              value={aiApiKey}
+              placeholder={`Enter your ${aiProvider || "AI provider"} API key...`}
+              focused
+              onInput={(value) => {
+                if (typeof value === "string" && stateRef.current.step === "ai_api_key") {
+                  setAiApiKey(value);
+                }
+              }}
+              onSubmit={() => handleAiApiKeySubmit()}
+              onKeyDown={(e) => {
+                if (e.name === "escape") {
+                  setStep("ai_provider");
+                }
+              }}
+            />
+            {error && <text fg="red" marginTop={1}>{error}</text>}
+            <text fg="gray" marginTop={2}>Press Enter to continue, Esc to go back</text>
+          </box>
+        );
+
+      case "model":
+        return (
+          <box flexDirection="column">
+            <text fg="cyan">Step 6: Default Model</text>
+            <text fg="gray" marginTop={1}>
+              Enter the model identifier for {aiProvider || "your AI provider"}.
+            </text>
+            <text fg="blue" marginTop={1}>
+              {getModelHint()}
+            </text>
+            <text fg="white" marginTop={2}>Model:</text>
+            <input
+              value={model}
+              placeholder="claude-sonnet-4-20250514"
+              focused
+              onInput={(value) => {
+                if (typeof value === "string" && stateRef.current.step === "model") {
+                  setModel(value);
+                }
+              }}
+              onSubmit={() => handleModelSubmit()}
+              onKeyDown={(e) => {
+                if (e.name === "escape") {
+                  setStep("ai_api_key");
+                }
+              }}
+            />
+            {error && <text fg="red" marginTop={1}>{error}</text>}
+            <text fg="gray" marginTop={2}>Press Enter to continue, Esc to go back</text>
+          </box>
+        );
+
+      case "telegram_bot_token":
+        return (
+          <box flexDirection="column">
+            <text fg="cyan">Step 7: Telegram Bot Token</text>
+            <text fg="gray" marginTop={1}>
+              Enter your Telegram bot token. Create one via @BotFather on Telegram.
+            </text>
+            <text fg="blue" marginTop={1}>
+              Open Telegram, search for @BotFather, send /newbot and follow the steps.
+            </text>
+            <text fg="white" marginTop={2}>Bot Token:</text>
+            <input
+              value={telegramBotToken}
+              placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz..."
+              focused
+              onInput={(value) => {
+                if (typeof value === "string" && stateRef.current.step === "telegram_bot_token") {
+                  setTelegramBotToken(value);
+                }
+              }}
+              onSubmit={() => handleTelegramBotTokenSubmit()}
+              onKeyDown={(e) => {
+                if (e.name === "escape") {
+                  setStep("model");
+                }
+              }}
+            />
+            {error && <text fg="red" marginTop={1}>{error}</text>}
+            <text fg="gray" marginTop={2}>Press Enter to continue, Esc to go back</text>
           </box>
         );
 
       case "confirm":
         return (
           <box flexDirection="column">
-            <text fg="cyan">Step 5: Confirm Configuration</text>
+            <text fg="cyan">Step 8: Confirm Configuration</text>
             <box
               flexDirection="column"
               borderStyle="single"
@@ -353,28 +491,44 @@ export function NewDeployment({ context }: Props) {
               marginTop={1}
             >
               <box flexDirection="row">
-                <text fg="gray" width={15}>Name:</text>
+                <text fg="gray" width={20}>Name:</text>
                 <text fg="white">{name}</text>
               </box>
               <box flexDirection="row">
-                <text fg="gray" width={15}>Provider:</text>
+                <text fg="gray" width={20}>Cloud Provider:</text>
                 <text fg="white">{PROVIDER_NAMES[provider]}</text>
               </box>
               <box flexDirection="row">
-                <text fg="gray" width={15}>Server Type:</text>
+                <text fg="gray" width={20}>Server Type:</text>
                 <text fg="white">CPX11 (2 vCPU, 2GB RAM, 40GB SSD)</text>
               </box>
               <box flexDirection="row">
-                <text fg="gray" width={15}>Location:</text>
+                <text fg="gray" width={20}>Location:</text>
                 <text fg="white">Ashburn, VA (US East)</text>
               </box>
               <box flexDirection="row">
-                <text fg="gray" width={15}>OS:</text>
+                <text fg="gray" width={20}>OS:</text>
                 <text fg="white">Ubuntu 24.04 LTS</text>
               </box>
               <box flexDirection="row">
-                <text fg="gray" width={15}>Custom Config:</text>
-                <text fg="white">{customConfig.trim() ? "Yes" : "Default"}</text>
+                <text fg="gray" width={20}>AI Provider:</text>
+                <text fg="white">{aiProvider}</text>
+              </box>
+              <box flexDirection="row">
+                <text fg="gray" width={20}>AI API Key:</text>
+                <text fg="white">{aiApiKey ? `${aiApiKey.substring(0, 8)}...` : "N/A"}</text>
+              </box>
+              <box flexDirection="row">
+                <text fg="gray" width={20}>Model:</text>
+                <text fg="white">{model}</text>
+              </box>
+              <box flexDirection="row">
+                <text fg="gray" width={20}>Channel:</text>
+                <text fg="white">Telegram</text>
+              </box>
+              <box flexDirection="row">
+                <text fg="gray" width={20}>Bot Token:</text>
+                <text fg="white">{telegramBotToken ? `${telegramBotToken.substring(0, 12)}...` : "N/A"}</text>
               </box>
             </box>
             {error && <text fg="red" marginTop={1}>{error}</text>}
@@ -397,6 +551,12 @@ export function NewDeployment({ context }: Props) {
               <text fg="gray" marginTop={1}>
                 Configuration saved to: ~/.clawcontrol/deployments/{name}/
               </text>
+              <text fg="gray" marginTop={1}>
+                AI: {aiProvider} / {model}
+              </text>
+              <text fg="gray">
+                Channel: Telegram (pairing will happen during /deploy)
+              </text>
             </box>
             <text fg="cyan" marginTop={2}>Next step: Run /deploy to deploy this configuration</text>
             <text fg="yellow" marginTop={2}>Press any key to return to home</text>
@@ -415,14 +575,13 @@ export function NewDeployment({ context }: Props) {
 
       {/* Progress indicator */}
       <box flexDirection="row" marginBottom={2}>
-        {["name", "provider", "api_key", "custom_config", "confirm"].map((s, i) => {
-          const steps = ["name", "provider", "api_key", "custom_config", "confirm"];
-          const currentIdx = steps.indexOf(step);
+        {STEP_LIST.map((s, i) => {
+          const currentIdx = STEP_LIST.indexOf(step);
           const stepColor = step === s ? "cyan" : currentIdx > i ? "green" : "gray";
           return (
             <box key={s} flexDirection="row">
               <text fg={stepColor}>{i + 1}</text>
-              {i < 4 && <text fg="gray"> → </text>}
+              {i < STEP_LIST.length - 1 && <text fg="gray"> → </text>}
             </box>
           );
         })}

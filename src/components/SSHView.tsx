@@ -130,13 +130,9 @@ export function SSHView({ context }: Props) {
         </box>
 
         <box flexDirection="row" marginBottom={1}>
-          <text fg="gray">Detected: </text>
+          <text fg="gray">Terminal: </text>
           <text fg="green">{terminalDisplayName}</text>
-          {terminal.canOpenTab ? (
-            <text fg="gray"> (will open new tab)</text>
-          ) : (
-            <text fg="gray"> (will open Terminal.app)</text>
-          )}
+          <text fg="gray"> (will open in a new window)</text>
         </box>
 
         <text fg="gray">Arrow keys to select | Enter to connect | Esc to go back</text>

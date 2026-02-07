@@ -13,7 +13,7 @@ interface Props {
   context: AppContext;
 }
 
-type DeployState = "deploying" | "confirming" | "waiting_terminal" | "success" | "failed";
+type DeployState = "deploying" | "confirming" | "waiting_terminal" | "pairing_channel" | "success" | "failed";
 
 interface ConfirmPrompt {
   message: string;
@@ -42,7 +42,12 @@ export function DeployingView({ context }: Props) {
   const handleConfirm = useCallback((message: string): Promise<boolean> => {
     return new Promise((resolve) => {
       setConfirmPrompt({ message, resolve });
-      setDeployState("confirming");
+      // Detect channel pairing confirmation to show a dedicated UI
+      if (message.includes("Telegram Channel Pairing")) {
+        setDeployState("pairing_channel");
+      } else {
+        setDeployState("confirming");
+      }
     });
   }, []);
 
@@ -98,12 +103,12 @@ export function DeployingView({ context }: Props) {
       if (key.name === "return") {
         confirmTerminalComplete();
       }
-    } else if (currentState.deployState === "confirming" && confirmPrompt) {
-      if (key.name === "y") {
+    } else if ((currentState.deployState === "confirming" || currentState.deployState === "pairing_channel") && confirmPrompt) {
+      if (key.name === "y" || key.name === "return") {
         confirmPrompt.resolve(true);
         setConfirmPrompt(null);
         setDeployState("deploying");
-      } else if (key.name === "n") {
+      } else if (key.name === "n" || key.name === "escape") {
         confirmPrompt.resolve(false);
         setConfirmPrompt(null);
         setDeployState("deploying");
@@ -168,6 +173,9 @@ export function DeployingView({ context }: Props) {
   const renderConfirmDialog = () => {
     if (!confirmPrompt) return null;
 
+    // Split message into lines and render each separately to avoid overlap
+    const lines = confirmPrompt.message.split("\n");
+
     return (
       <box
         flexDirection="column"
@@ -175,26 +183,36 @@ export function DeployingView({ context }: Props) {
         borderColor="yellow"
         padding={1}
         marginBottom={1}
+        overflow="hidden"
       >
         <text fg="yellow">Confirmation Required</text>
-        <text fg="white" marginTop={1}>{confirmPrompt.message}</text>
-        <text fg="yellow" marginTop={2}>Press Y for Yes, N for No</text>
+        <box flexDirection="column" marginTop={1} height={10} overflow="hidden">
+          {lines.slice(0, 10).map((line, i) => (
+            <text key={i} fg="white">{line}</text>
+          ))}
+        </box>
+        <text fg="yellow" marginTop={1}>Press Y for Yes, N for No</text>
       </box>
     );
   };
 
   const renderWaitingTerminal = () => {
+    // Determine context from the current progress step
+    const isPairing = progress?.currentStep === "channel_paired";
+    const title = isPairing ? "Telegram Channel Pairing" : "Interactive Setup";
+    const borderCol = isPairing ? "magenta" : "cyan";
+
     return (
       <box flexDirection="column" flexGrow={1}>
         <box
           flexDirection="column"
           borderStyle="double"
-          borderColor="cyan"
+          borderColor={borderCol}
           padding={1}
           marginBottom={1}
         >
-          <text fg="cyan">OpenClaw Setup in Progress</text>
-          <text fg="white" marginTop={1}>A terminal window has been opened for the interactive setup.</text>
+          <text fg={borderCol}>{title}</text>
+          <text fg="white" marginTop={1}>A terminal window has been opened.</text>
         </box>
 
         <box
@@ -203,12 +221,25 @@ export function DeployingView({ context }: Props) {
           borderColor="yellow"
           padding={1}
           marginBottom={1}
+          height={8}
+          overflow="hidden"
         >
           <text fg="yellow">Instructions:</text>
-          <text fg="white" marginTop={1}>1. Complete the OpenClaw onboarding in the terminal window</text>
-          <text fg="white">2. Follow the prompts to configure your API keys</text>
-          <text fg="white">3. When setup is complete, close the terminal window</text>
-          <text fg="white">4. Press Enter here to continue the deployment</text>
+          {isPairing ? (
+            <box flexDirection="column" marginTop={1}>
+              <text fg="white">1. Follow the Telegram pairing prompts in the terminal</text>
+              <text fg="white">2. Open Telegram and start a chat with your bot</text>
+              <text fg="white">3. Once paired, close the terminal window</text>
+              <text fg="white">4. Press Enter here to continue</text>
+            </box>
+          ) : (
+            <box flexDirection="column" marginTop={1}>
+              <text fg="white">1. Complete the setup in the terminal window</text>
+              <text fg="white">2. Follow the prompts shown in the terminal</text>
+              <text fg="white">3. When done, close the terminal window</text>
+              <text fg="white">4. Press Enter here to continue</text>
+            </box>
+          )}
         </box>
 
         <box
@@ -217,7 +248,73 @@ export function DeployingView({ context }: Props) {
           borderColor="green"
           padding={1}
         >
-          <text fg="green">Press Enter when you have completed the setup in the terminal window</text>
+          <text fg="green">Press Enter when you have completed the setup in the terminal</text>
+        </box>
+      </box>
+    );
+  };
+
+  const renderPairingChannel = () => {
+    if (!confirmPrompt) return null;
+
+    // Split the message into clean lines for display
+    const messageLines = confirmPrompt.message.split("\n").filter((l) => l.trim());
+
+    return (
+      <box flexDirection="column" flexGrow={1}>
+        <box
+          flexDirection="column"
+          borderStyle="double"
+          borderColor="magenta"
+          padding={1}
+          marginBottom={1}
+        >
+          <text fg="magenta">Telegram Channel Pairing</text>
+          <text fg="white" marginTop={1}>
+            Your OpenClaw agent is running with Telegram configured.
+          </text>
+          <text fg="white">
+            A terminal window will open to pair your Telegram account.
+          </text>
+        </box>
+
+        <box
+          flexDirection="column"
+          borderStyle="single"
+          borderColor="yellow"
+          padding={1}
+          marginBottom={1}
+          height={8}
+          overflow="hidden"
+        >
+          <text fg="yellow">Instructions:</text>
+          <text fg="white" marginTop={1}>1. Complete the Telegram pairing in the terminal window</text>
+          <text fg="white">2. Follow the prompts shown in the terminal</text>
+          <text fg="white">3. Once paired, close the terminal window</text>
+          <text fg="white">4. Press Y here to continue, or N to skip</text>
+        </box>
+
+        <box
+          flexDirection="column"
+          borderStyle="single"
+          borderColor="gray"
+          padding={1}
+          marginBottom={1}
+          height={6}
+          overflow="hidden"
+        >
+          {messageLines.slice(-4).map((line, i) => (
+            <text key={i} fg="gray">{line}</text>
+          ))}
+        </box>
+
+        <box
+          flexDirection="column"
+          borderStyle="single"
+          borderColor="green"
+          padding={1}
+        >
+          <text fg="green">Press Y to confirm pairing is complete, N to skip</text>
         </box>
       </box>
     );
@@ -309,6 +406,9 @@ export function DeployingView({ context }: Props) {
       {/* Waiting for Terminal */}
       {deployState === "waiting_terminal" && renderWaitingTerminal()}
 
+      {/* Channel Pairing */}
+      {deployState === "pairing_channel" && renderPairingChannel()}
+
       {/* Success */}
       {deployState === "success" && renderSuccess()}
 
@@ -321,12 +421,12 @@ export function DeployingView({ context }: Props) {
         borderStyle="single"
         borderColor="gray"
         padding={1}
-        flexGrow={1}
+        height={12}
         overflow="hidden"
       >
         <text fg="gray">Deployment Log</text>
         <box flexDirection="column" marginTop={1}>
-          {logs.map((log, i) => (
+          {logs.slice(-8).map((log, i) => (
             <text key={i} fg="gray">{log}</text>
           ))}
         </box>

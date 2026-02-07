@@ -1,5 +1,7 @@
 import { spawn, spawnSync, execSync } from "child_process";
-import { platform } from "os";
+import { platform, tmpdir } from "os";
+import { writeFileSync } from "fs";
+import { join } from "path";
 
 export type TerminalApp =
   | "terminal.app"      // macOS Terminal
@@ -20,24 +22,6 @@ export type TerminalApp =
 interface TerminalInfo {
   app: TerminalApp;
   canOpenTab: boolean;
-}
-
-/**
- * Check if we're running inside a specific app by checking the process tree
- */
-function isRunningUnderApp(appName: string): boolean {
-  if (platform() !== "darwin") return false;
-
-  try {
-    // Get the process tree and check if any parent is the app
-    const result = execSync(
-      `ps -o ppid= -p $$ 2>/dev/null && pstree -p $$ 2>/dev/null | grep -i "${appName}" || ps -e -o pid,comm 2>/dev/null | grep -i "${appName}"`,
-      { encoding: "utf-8", timeout: 1000 }
-    );
-    return result.toLowerCase().includes(appName.toLowerCase());
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -205,19 +189,68 @@ export function openTerminalWithCommand(command: string): { success: boolean; er
 
 // Terminal-specific openers
 
+/**
+ * Write a command to a temporary executable script.
+ * Avoids quoting hell when passing complex SSH commands to terminal emulators.
+ * The script cleans itself up after execution.
+ */
+function createTempScript(command: string): string {
+  const scriptPath = join(tmpdir(), `clawcontrol-${process.pid}-${Date.now()}.sh`);
+  const content = [
+    "#!/bin/bash",
+    command,
+    `rm -f '${scriptPath}'`,
+    "",
+  ].join("\n");
+  writeFileSync(scriptPath, content, { mode: 0o755 });
+  return scriptPath;
+}
+
 function openGhostty(command: string): { success: boolean; error?: string } {
+  // Write command to a temp script to avoid quoting issues
+  const script = createTempScript(command);
+
   if (platform() === "darwin") {
-    // On macOS, use 'open' to launch Ghostty with the command
-    // Ghostty on macOS requires using open -a
-    const proc = spawn("open", ["-na", "Ghostty", "--args", "-e", command], {
-      stdio: "ignore",
-      detached: true,
-    });
-    proc.unref();
-    return { success: true };
+    // On macOS, the `ghostty -e` CLI spawns a process that communicates with the
+    // running Ghostty app via XPC, but this frequently fails to create a visible
+    // window (the process hangs with no window). Instead, use AppleScript via
+    // System Events to reliably open a new Ghostty window and run the command.
+    try {
+      const scriptExec = `/bin/bash ${script}`;
+      const appleScript = [
+        'tell application "Ghostty" to activate',
+        'delay 0.3',
+        'tell application "System Events"',
+        '  tell process "Ghostty"',
+        '    keystroke "n" using command down',
+        '  end tell',
+        'end tell',
+        'delay 0.5',
+        'tell application "System Events"',
+        '  tell process "Ghostty"',
+        `    keystroke "${scriptExec}"`,
+        '    delay 0.1',
+        '    key code 36',  // Enter
+        '  end tell',
+        'end tell',
+      ];
+
+      const args = appleScript.flatMap((line) => ["-e", line]);
+      const result = spawnSync("osascript", args, { timeout: 10000, stdio: "pipe" });
+
+      if (result.status === 0) {
+        return { success: true };
+      }
+      // AppleScript failed — fall through to fallbacks
+    } catch {
+      // AppleScript not available or Accessibility permissions missing
+    }
+
+    // Fallback: Terminal.app via AppleScript (always available on macOS)
+    return openTerminalApp(`/bin/bash ${script}`);
   } else {
-    // On Linux, ghostty -e should work
-    const proc = spawn("ghostty", ["-e", command], {
+    // On Linux, ghostty CLI should be in PATH
+    const proc = spawn("ghostty", ["-e", "/bin/bash", script], {
       stdio: "ignore",
       detached: true,
     });
@@ -227,21 +260,23 @@ function openGhostty(command: string): { success: boolean; error?: string } {
 }
 
 function openKitty(command: string): { success: boolean; error?: string } {
+  const script = createTempScript(command);
+
   // Kitty can open new tabs with kitten @
-  const result = spawnSync("kitten", ["@", "launch", "--type=tab", "--", "sh", "-c", command], {
+  const result = spawnSync("kitten", ["@", "launch", "--type=tab", "--", "/bin/bash", script], {
     stdio: "ignore",
   });
 
   if (result.error || result.status !== 0) {
     // Fall back to new window
     if (platform() === "darwin") {
-      const proc = spawn("open", ["-na", "kitty", "--args", "sh", "-c", command], {
+      const proc = spawn("open", ["-na", "kitty", "--args", "/bin/bash", script], {
         stdio: "ignore",
         detached: true,
       });
       proc.unref();
     } else {
-      const proc = spawn("kitty", ["sh", "-c", command], {
+      const proc = spawn("kitty", ["/bin/bash", script], {
         stdio: "ignore",
         detached: true,
       });
@@ -340,44 +375,45 @@ function openHyper(command: string): { success: boolean; error?: string } {
 
 function openCursorTerminal(command: string): { success: boolean; error?: string } {
   if (platform() === "darwin") {
-    // Use AppleScript to open a new terminal in Cursor and run the command
-    // We use the clipboard to paste the command to avoid case sensitivity issues with keystroke
-    const escapedCommand = command.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const appleScript = `
-      -- Save the current clipboard
-      set oldClipboard to the clipboard
+    // For complex SSH commands, open in an external terminal instead of
+    // trying to paste into Cursor's integrated terminal (which is fragile).
+    // Try Ghostty, iTerm2, then Terminal.app in order of preference.
+    const externalTerminals: Array<{ check: () => boolean; open: (cmd: string) => { success: boolean; error?: string } }> = [
+      {
+        // Check if Ghostty is installed (app bundle or running process)
+        check: () => {
+          try {
+            execSync('test -d "/Applications/Ghostty.app"', { stdio: "ignore", timeout: 1000 });
+            return true;
+          } catch {
+            // Also check if a ghostty process is running (might be in a custom location)
+            try {
+              const result = execSync('pgrep -x ghostty', { stdio: "pipe", timeout: 1000, encoding: "utf-8" });
+              return result.trim().length > 0;
+            } catch { return false; }
+          }
+        },
+        open: openGhostty,
+      },
+      {
+        check: () => {
+          try {
+            execSync('test -d "/Applications/iTerm.app"', { stdio: "ignore", timeout: 1000 });
+            return true;
+          } catch { return false; }
+        },
+        open: openITerm2,
+      },
+    ];
 
-      -- Set the command to clipboard
-      set the clipboard to "${escapedCommand}"
+    for (const terminal of externalTerminals) {
+      if (terminal.check()) {
+        return terminal.open(command);
+      }
+    }
 
-      tell application "Cursor"
-        activate
-      end tell
-      delay 0.3
-      tell application "System Events"
-        tell process "Cursor"
-          -- Open new terminal with Ctrl+Shift+\`
-          key code 50 using {control down, shift down}
-          delay 0.5
-          -- Paste the command with Cmd+V
-          keystroke "v" using command down
-          delay 0.1
-          -- Press Enter
-          key code 36
-        end tell
-      end tell
-
-      -- Restore the original clipboard after a delay
-      delay 0.5
-      set the clipboard to oldClipboard
-    `;
-
-    const proc = spawn("osascript", ["-e", appleScript], {
-      stdio: "ignore",
-      detached: true,
-    });
-    proc.unref();
-    return { success: true };
+    // Final fallback: macOS Terminal.app (always available)
+    return openTerminalApp(command);
   }
 
   // Linux: Fall back to system terminal
@@ -385,60 +421,21 @@ function openCursorTerminal(command: string): { success: boolean; error?: string
 }
 
 function openVSCodeTerminal(command: string): { success: boolean; error?: string } {
-  if (platform() === "darwin") {
-    // Use AppleScript to open a new terminal in VS Code and run the command
-    // We use the clipboard to paste the command to avoid case sensitivity issues with keystroke
-    const escapedCommand = command.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const appleScript = `
-      -- Save the current clipboard
-      set oldClipboard to the clipboard
-
-      -- Set the command to clipboard
-      set the clipboard to "${escapedCommand}"
-
-      tell application "Visual Studio Code"
-        activate
-      end tell
-      delay 0.3
-      tell application "System Events"
-        tell process "Code"
-          -- Open new terminal with Ctrl+Shift+\`
-          key code 50 using {control down, shift down}
-          delay 0.5
-          -- Paste the command with Cmd+V
-          keystroke "v" using command down
-          delay 0.1
-          -- Press Enter
-          key code 36
-        end tell
-      end tell
-
-      -- Restore the original clipboard after a delay
-      delay 0.5
-      set the clipboard to oldClipboard
-    `;
-
-    const proc = spawn("osascript", ["-e", appleScript], {
-      stdio: "ignore",
-      detached: true,
-    });
-    proc.unref();
-    return { success: true };
-  }
-
-  // Linux: Fall back to system terminal
-  return openLinuxFallback(command);
+  // Same strategy as Cursor — open in an external terminal for reliability
+  return openCursorTerminal(command);
 }
 
 function openAlacritty(command: string): { success: boolean; error?: string } {
+  const script = createTempScript(command);
+
   if (platform() === "darwin") {
-    const proc = spawn("open", ["-na", "Alacritty", "--args", "-e", "sh", "-c", command], {
+    const proc = spawn("open", ["-na", "Alacritty", "--args", "-e", "/bin/bash", script], {
       stdio: "ignore",
       detached: true,
     });
     proc.unref();
   } else {
-    const proc = spawn("alacritty", ["-e", "sh", "-c", command], {
+    const proc = spawn("alacritty", ["-e", "/bin/bash", script], {
       stdio: "ignore",
       detached: true,
     });

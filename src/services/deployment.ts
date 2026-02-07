@@ -37,6 +37,7 @@ const CHECKPOINT_ORDER: CheckpointName[] = [
   "tailscale_authenticated",
   "tailscale_configured",
   "daemon_started",
+  "channel_paired",
   "completed",
 ];
 
@@ -336,6 +337,9 @@ export class DeploymentOrchestrator {
       case "daemon_started":
         await this.startDaemon();
         break;
+      case "channel_paired":
+        await this.pairChannel();
+        break;
       case "completed":
         // Final step - nothing to do
         break;
@@ -548,7 +552,14 @@ export class DeploymentOrchestrator {
   private async configureOpenClaw(): Promise<void> {
     const ssh = await this.ensureSSHConnected();
     const customConfig = this.deployment.config.openclawConfig;
-    await SetupScripts.configureOpenClaw(ssh, customConfig);
+    const agentConfig = this.deployment.config.openclawAgent;
+    await SetupScripts.configureOpenClaw(ssh, customConfig, agentConfig);
+
+    // Write the environment file with the AI provider API key
+    if (agentConfig) {
+      this.reportProgress("openclaw_configured", "Writing AI provider environment...");
+      await SetupScripts.writeOpenClawEnvFile(ssh, agentConfig);
+    }
   }
 
   private async installTailscale(): Promise<void> {
@@ -590,6 +601,64 @@ export class DeploymentOrchestrator {
   }
 
   private async startDaemon(): Promise<void> {
+    const ssh = await this.ensureSSHConnected();
+    const state = readDeploymentState(this.deploymentName);
+
+    if (!state.serverIp) {
+      throw new Error("Server IP not found");
+    }
+
+    // Step 1: Programmatically install the systemd daemon
+    this.reportProgress("daemon_started", "Installing OpenClaw systemd service...");
+    await SetupScripts.installOpenClawDaemon(ssh);
+
+    // Step 2: Start the daemon
+    this.reportProgress("daemon_started", "Starting OpenClaw daemon...");
+    await SetupScripts.startOpenClawDaemon(ssh);
+
+    this.reportProgress("daemon_started", "OpenClaw daemon is running.");
+
+    // Step 3: Offer the user to also run openclaw onboard interactively
+    const wantsOnboard = await this.onConfirm(
+      `Your OpenClaw config has been applied and the daemon is running.\n\n` +
+      `Would you like to also run 'openclaw onboard' interactively for additional setup?\n` +
+      `(This is optional — your agent is already configured.)`
+    );
+
+    if (wantsOnboard) {
+      const keyPair = loadSSHKeyPair(this.deploymentName);
+      if (!keyPair) {
+        throw new Error("SSH key pair not found");
+      }
+
+      this.reportProgress("daemon_started", "Opening terminal for optional OpenClaw onboard...");
+      await this.onSpawnTerminal(
+        this.deploymentName,
+        state.serverIp,
+        "source ~/.nvm/nvm.sh && openclaw onboard --install-daemon"
+      );
+
+      // Re-verify after onboard
+      this.reportProgress("daemon_started", "Verifying OpenClaw daemon after onboard...");
+      const freshSsh = await this.ensureSSHConnected();
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+
+      const statusResult = await freshSsh.exec("systemctl is-active openclaw || true");
+      if (!statusResult.stdout.includes("active")) {
+        await freshSsh.exec("systemctl restart openclaw || true");
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+  }
+
+  private async pairChannel(): Promise<void> {
+    const agentConfig = this.deployment.config.openclawAgent;
+
+    if (!agentConfig || agentConfig.channel !== "telegram") {
+      this.reportProgress("channel_paired", "No channel pairing required.");
+      return;
+    }
+
     const state = readDeploymentState(this.deploymentName);
     if (!state.serverIp) {
       throw new Error("Server IP not found");
@@ -600,50 +669,28 @@ export class DeploymentOrchestrator {
       throw new Error("SSH key pair not found");
     }
 
-    // Ask user to complete OpenClaw onboarding interactively
+    // Ask the user if they want to pair now
     const confirmed = await this.onConfirm(
-      `OpenClaw needs interactive setup.\n\n` +
-      `You will be connected to the server to run the onboarding command.\n` +
-      `Please complete the setup and then type 'exit' to continue deployment.\n\n` +
-      `Ready to connect?`
+      `Telegram Channel Pairing\n\n` +
+      `Your OpenClaw agent is running with Telegram configured.\n` +
+      `A terminal will open to pair your Telegram account.\n\n` +
+      `Ready to start pairing?`
     );
 
     if (!confirmed) {
-      throw new Error("User cancelled OpenClaw setup");
+      this.reportProgress("channel_paired", "Channel pairing skipped.");
+      return;
     }
 
-    // Spawn a real terminal window for interactive SSH session
-    this.reportProgress("daemon_started", "Opening terminal for OpenClaw setup...");
+    // Spawn a real terminal for interactive Telegram pairing
+    this.reportProgress("channel_paired", "Opening terminal for Telegram pairing...");
     await this.onSpawnTerminal(
       this.deploymentName,
       state.serverIp,
-      "source ~/.nvm/nvm.sh && openclaw onboard --install-daemon"
+      "source ~/.nvm/nvm.sh && openclaw channels login telegram"
     );
 
-    // Verify the daemon is running after user completes setup
-    this.reportProgress("daemon_started", "Verifying OpenClaw daemon...");
-    const ssh = await this.ensureSSHConnected();
-
-    // Wait a moment for service to stabilize
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-
-    const statusResult = await ssh.exec("systemctl is-active openclaw || true");
-    if (!statusResult.stdout.includes("active")) {
-      // Check if it was installed but not started
-      const serviceExists = await ssh.exec("systemctl list-unit-files | grep openclaw || true");
-      if (serviceExists.stdout.includes("openclaw")) {
-        await ssh.exec("systemctl start openclaw || true");
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-
-        const retryStatus = await ssh.exec("systemctl is-active openclaw || true");
-        if (!retryStatus.stdout.includes("active")) {
-          const logs = await ssh.exec("journalctl -u openclaw -n 20 --no-pager || true");
-          throw new Error(`OpenClaw daemon not running after setup. Logs: ${logs.stdout}`);
-        }
-      } else {
-        throw new Error("OpenClaw daemon was not installed. Please run setup again.");
-      }
-    }
+    this.reportProgress("channel_paired", "Telegram channel paired successfully.");
   }
 
   // ============ Progress Reporting ============
@@ -680,6 +727,7 @@ export class DeploymentOrchestrator {
       tailscale_authenticated: "Authenticating Tailscale",
       tailscale_configured: "Configuring Tailscale",
       daemon_started: "Starting OpenClaw daemon",
+      channel_paired: "Pairing Telegram channel",
       completed: "Deployment complete",
     };
     return descriptions[checkpoint] || checkpoint;

@@ -40,6 +40,7 @@ export type CheckpointName =
   | "tailscale_authenticated"
   | "tailscale_configured"
   | "daemon_started"
+  | "channel_paired"
   | "completed";
 
 export const CheckpointNameSchema = z.enum([
@@ -58,6 +59,7 @@ export const CheckpointNameSchema = z.enum([
   "tailscale_authenticated",
   "tailscale_configured",
   "daemon_started",
+  "channel_paired",
   "completed",
 ]);
 
@@ -98,6 +100,17 @@ export const OpenClawConfigSchema = z
 
 export type OpenClawConfig = z.infer<typeof OpenClawConfigSchema>;
 
+// OpenClaw agent config (AI provider + channel)
+export const OpenClawAgentConfigSchema = z.object({
+  aiProvider: z.string().min(1, "AI provider is required"),
+  aiApiKey: z.string().min(1, "AI provider API key is required"),
+  model: z.string().min(1, "Model identifier is required"),
+  channel: z.string().default("telegram"),
+  telegramBotToken: z.string().min(1, "Telegram bot token is required"),
+});
+
+export type OpenClawAgentConfig = z.infer<typeof OpenClawAgentConfigSchema>;
+
 // Deployment configuration (stored in config.json)
 export const DeploymentConfigSchema = z.object({
   name: z.string().min(1, "Deployment name is required"),
@@ -105,6 +118,7 @@ export const DeploymentConfigSchema = z.object({
   createdAt: z.string(),
   hetzner: HetznerConfigSchema.optional(),
   openclawConfig: OpenClawConfigSchema,
+  openclawAgent: OpenClawAgentConfigSchema.optional(),
 });
 
 export type DeploymentConfig = z.infer<typeof DeploymentConfigSchema>;
