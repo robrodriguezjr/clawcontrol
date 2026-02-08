@@ -50,6 +50,14 @@ const STEP_LIST: Step[] = [
   "confirm",
 ];
 
+const AI_PROVIDERS = [
+  { name: "anthropic", label: "Anthropic", description: "Claude models (Recommended)" },
+  { name: "openai", label: "OpenAI", description: "GPT-4o, o1, and more" },
+  { name: "openrouter", label: "OpenRouter", description: "Access multiple providers via one API" },
+  { name: "google", label: "Google", description: "Gemini models" },
+  { name: "groq", label: "Groq", description: "Fast inference for open models" },
+];
+
 export function NewDeployment({ context }: Props) {
   const [step, setStep] = useState<Step>("name");
   const [name, setName] = useState("");
@@ -63,6 +71,7 @@ export function NewDeployment({ context }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [selectedProviderIndex, setSelectedProviderIndex] = useState(0);
+  const [selectedAiProviderIndex, setSelectedAiProviderIndex] = useState(0);
 
   // Use refs to avoid stale closures in useKeyboard callback
   const stateRef = useRef({
@@ -159,6 +168,16 @@ export function NewDeployment({ context }: Props) {
       } else if (key.name === "escape") {
         setStep("name");
       }
+    } else if (currentState.step === "ai_provider") {
+      if (key.name === "up") {
+        setSelectedAiProviderIndex((prev) => Math.max(0, prev - 1));
+      } else if (key.name === "down") {
+        setSelectedAiProviderIndex((prev) => Math.min(AI_PROVIDERS.length - 1, prev + 1));
+      } else if (key.name === "return") {
+        handleAiProviderSubmit();
+      } else if (key.name === "escape") {
+        setStep("api_key");
+      }
     } else if (currentState.step === "confirm") {
       if (key.name === "y" || key.name === "return") {
         handleConfirmFromRef();
@@ -216,10 +235,8 @@ export function NewDeployment({ context }: Props) {
   };
 
   const handleAiProviderSubmit = () => {
-    if (!aiProvider.trim()) {
-      setError("AI provider is required");
-      return;
-    }
+    const selected = AI_PROVIDERS[selectedAiProviderIndex];
+    setAiProvider(selected.name);
     setError(null);
     setStep("ai_api_key");
   };
@@ -344,7 +361,7 @@ export function NewDeployment({ context }: Props) {
           <box flexDirection="column">
             <text fg="cyan">Step 3: Hetzner API Key</text>
             <text fg="gray" marginTop={1}>Enter your Hetzner Cloud API token.</text>
-            <text fg="blue" marginTop={1}>
+            <text fg="gray" marginTop={1}>
               Get one at: https://docs.hetzner.com/cloud/api/getting-started/generating-api-token
             </text>
             <text fg="white" marginTop={2}>API Key:</text>
@@ -378,31 +395,27 @@ export function NewDeployment({ context }: Props) {
         return (
           <box flexDirection="column">
             <text fg="cyan">Step 4: AI Provider</text>
-            <text fg="gray" marginTop={1}>
-              Enter the name of your AI model provider.
-            </text>
-            <text fg="blue" marginTop={1}>
-              Common providers: anthropic, openai, openrouter, google, groq
-            </text>
-            <text fg="white" marginTop={2}>Provider:</text>
-            <input
-              value={aiProvider}
-              placeholder="anthropic"
-              focused
-              onInput={(value) => {
-                if (typeof value === "string" && stateRef.current.step === "ai_provider") {
-                  setAiProvider(value);
-                }
-              }}
-              onSubmit={() => handleAiProviderSubmit()}
-              onKeyDown={(e) => {
-                if (e.name === "escape") {
-                  setStep("api_key");
-                }
-              }}
-            />
+            <text fg="gray" marginTop={1}>Select your AI model provider (use arrow keys and Enter):</text>
+            <box
+              flexDirection="column"
+              borderStyle="single"
+              borderColor="gray"
+              marginTop={1}
+              padding={1}
+            >
+              {AI_PROVIDERS.map((p, i) => {
+                const isSelected = i === selectedAiProviderIndex;
+                return (
+                  <box key={p.name} flexDirection="row" backgroundColor={isSelected ? "#334155" : undefined}>
+                    <text fg={isSelected ? "cyan" : "white"}>{isSelected ? "❯ " : "  "}</text>
+                    <text fg={isSelected ? "cyan" : "white"}>{p.label}</text>
+                    <text fg={isSelected ? "white" : "gray"}>{" - " + p.description}</text>
+                  </box>
+                );
+              })}
+            </box>
             {error && <text fg="red" marginTop={1}>{error}</text>}
-            <text fg="gray" marginTop={2}>Press Enter to continue, Esc to go back</text>
+            <text fg="gray" marginTop={1}>Press Enter to select, Esc to go back</text>
           </box>
         );
 
@@ -442,7 +455,7 @@ export function NewDeployment({ context }: Props) {
             <text fg="gray" marginTop={1}>
               Enter the model identifier for {aiProvider || "your AI provider"}.
             </text>
-            <text fg="blue" marginTop={1}>
+            <text fg="gray" marginTop={1}>
               {getModelHint()}
             </text>
             <text fg="white" marginTop={2}>Model:</text>
@@ -474,7 +487,7 @@ export function NewDeployment({ context }: Props) {
             <text fg="gray" marginTop={1}>
               Enter your Telegram bot token. Create one via @BotFather on Telegram.
             </text>
-            <text fg="blue" marginTop={1}>
+            <text fg="gray" marginTop={1}>
               Open Telegram, search for @BotFather, send /newbot and follow the steps.
             </text>
             <text fg="white" marginTop={2}>Bot Token:</text>
@@ -509,10 +522,10 @@ export function NewDeployment({ context }: Props) {
             <text fg="gray">
               Only messages from this user will be processed by the agent.
             </text>
-            <text fg="blue" marginTop={1}>
+            <text fg="gray" marginTop={1}>
               Find your user ID: https://docs.openclaw.ai/channels/telegram#finding-your-telegram-user-id
             </text>
-            <text fg="blue">
+            <text fg="gray">
               Learn more: https://docs.openclaw.ai/channels/telegram#access-control-dms-+-groups
             </text>
             <text fg="white" marginTop={2}>User ID or @username:</text>

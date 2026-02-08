@@ -3,7 +3,9 @@ import { createRoot } from "@opentui/react";
 import { App } from "./App.js";
 
 async function main() {
-  const renderer = await createCliRenderer();
+  const renderer = await createCliRenderer({
+    useMouse: true,
+  });
   const root = createRoot(renderer);
   root.render(<App />);
 }

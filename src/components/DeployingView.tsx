@@ -138,6 +138,11 @@ export function DeployingView({ context }: Props) {
         setError(errorMessage);
         setDeployState("failed");
         addLog(`Deployment failed: ${errorMessage}`);
+
+        // Also log the checkpoint if available from DeploymentError
+        if (err && typeof err === "object" && "checkpoint" in err) {
+          addLog(`Failed at checkpoint: ${(err as { checkpoint: string }).checkpoint}`);
+        }
       }
     };
 
@@ -245,35 +250,35 @@ export function DeployingView({ context }: Props) {
           marginBottom={1}
         >
           <text fg="green">Deployment Successful!</text>
-          <text fg="white" marginTop={1}>Your OpenClaw instance is now running.</text>
+          <text fg="green" marginTop={1}>Your OpenClaw instance is now running.</text>
         </box>
 
         <box
           flexDirection="column"
           borderStyle="single"
-          borderColor="gray"
+          borderColor="green"
           padding={1}
           marginBottom={1}
         >
-          <text fg="white">Connection Details</text>
+          <text fg="green">Connection Details</text>
           <box flexDirection="row" marginTop={1}>
-            <text fg="gray" width={15}>Server IP:</text>
+            <text fg="white" width={15}>Server IP:</text>
             <text fg="cyan">{state.serverIp || "N/A"}</text>
           </box>
           <box flexDirection="row">
-            <text fg="gray" width={15}>Tailscale IP:</text>
+            <text fg="white" width={15}>Tailscale IP:</text>
             <text fg="cyan">{state.tailscaleIp || "N/A"}</text>
           </box>
           <box flexDirection="row">
-            <text fg="gray" width={15}>Gateway Port:</text>
+            <text fg="white" width={15}>Gateway Port:</text>
             <text fg="cyan">18789</text>
           </box>
         </box>
 
-        <text fg="white">Next steps:</text>
-        <text fg="gray">• Run /ssh to connect to your server</text>
-        <text fg="gray">• Run /logs to view OpenClaw logs</text>
-        <text fg="gray">• Access gateway at: http://{state.tailscaleIp || state.serverIp}:18789/</text>
+        <text fg="green">Next steps:</text>
+        <text fg="white">  /ssh  - Connect to your server</text>
+        <text fg="white">  /logs - View OpenClaw logs</text>
+        <text fg="white">  Gateway: http://{state.tailscaleIp || state.serverIp}:18789/</text>
 
         <text fg="yellow" marginTop={2}>Press any key to return to home</text>
       </box>
@@ -291,13 +296,18 @@ export function DeployingView({ context }: Props) {
           marginBottom={1}
         >
           <text fg="red">Deployment Failed</text>
-          <text fg="white" marginTop={1}>{error}</text>
+          <text fg="white" marginTop={1}>Something went wrong during deployment.</text>
+          <text fg="red" marginTop={1}>Error: {error}</text>
         </box>
 
-        <text fg="gray">You can try again with /deploy</text>
-        <text fg="gray">The deployment will resume from the last successful checkpoint.</text>
+        <box flexDirection="column" marginBottom={1}>
+          <text fg="white">What you can do:</text>
+          <text fg="gray">  1. Run /deploy again - it will resume from the last successful step</text>
+          <text fg="gray">  2. Run /status to check the current state of your deployment</text>
+          <text fg="gray">  3. Run /destroy and /new to start fresh if the issue persists</text>
+        </box>
 
-        <text fg="yellow" marginTop={2}>Press any key to return to home</text>
+        <text fg="yellow" marginTop={1}>Press any key to return to home</text>
       </box>
     );
   };

@@ -85,7 +85,7 @@ export function Home({ context }: Props) {
             padding={1}
             marginBottom={1}
           >
-            <text fg="blue">Quick Start</text>
+            <text fg="cyan">Quick Start</text>
             <text fg="white" marginTop={1}>1. Type /new to initialize a new deployment</text>
             <text fg="white">2. Type /deploy to deploy your configuration</text>
             <text fg="white">3. Type /status to monitor your deployments</text>

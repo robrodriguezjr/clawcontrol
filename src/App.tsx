@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
+import { useRenderer } from "@opentui/react";
 import type { ViewName, Deployment } from "./types/index.js";
 import { Home } from "./components/Home.js";
 import { NewDeployment } from "./components/NewDeployment.js";
@@ -19,6 +20,7 @@ export interface AppContext {
 }
 
 export function App() {
+  const renderer = useRenderer();
   const [currentView, setCurrentView] = useState<ViewName>("home");
   const [selectedDeployment, setSelectedDeployment] = useState<string | null>(null);
   const [deployments, setDeployments] = useState<Deployment[]>(() => {
@@ -28,6 +30,25 @@ export function App() {
       return [];
     }
   });
+
+  const wasDraggingRef = useRef(false);
+
+  const handleMouseDrag = useCallback(() => {
+    wasDraggingRef.current = true;
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    if (!wasDraggingRef.current) return;
+    wasDraggingRef.current = false;
+
+    const selection = renderer.getSelection();
+    if (selection) {
+      const text = selection.getSelectedText();
+      if (text) {
+        renderer.copyToClipboardOSC52(text);
+      }
+    }
+  }, [renderer]);
 
   const refreshDeployments = useCallback(() => {
     try {
@@ -84,6 +105,9 @@ export function App() {
       scrollY={true}
       scrollX={false}
       focused={false}
+      selectable
+      onMouseDrag={handleMouseDrag}
+      onMouseUp={handleMouseUp}
       style={{
         flexGrow: 1,
         flexShrink: 1,

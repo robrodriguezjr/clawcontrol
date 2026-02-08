@@ -235,7 +235,7 @@ export class DeploymentOrchestrator {
       const state = readDeploymentState(this.deploymentName);
       let retryCount = getCheckpointRetryCount(state, checkpoint);
 
-      this.reportProgress(checkpoint, `Starting: ${this.getCheckpointDescription(checkpoint)}`);
+      this.reportProgress(checkpoint, this.getCheckpointDescription(checkpoint));
 
       while (retryCount < MAX_RETRIES) {
         try {
@@ -245,37 +245,45 @@ export class DeploymentOrchestrator {
         } catch (error) {
           retryCount++;
           const errorMessage = error instanceof Error ? error.message : String(error);
+          const stepDescription = this.getCheckpointDescription(checkpoint);
 
           updateDeploymentState(this.deploymentName, {
             lastError: errorMessage,
             status: "failed",
           });
 
-          if (retryCount >= MAX_RETRIES) {
-            // Ask user what to do
-            const shouldContinue = await this.onConfirm(
-              `Step "${this.getCheckpointDescription(checkpoint)}" failed ${MAX_RETRIES} times.\n` +
-              `Last error: ${errorMessage}\n\n` +
+          if (retryCount < MAX_RETRIES) {
+            // Notify about retry
+            this.reportProgress(
+              checkpoint,
+              `${stepDescription} failed (attempt ${retryCount}/${MAX_RETRIES}), retrying...`
+            );
+            // Wait before retry
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+          } else {
+            // Ask user what to do after all retries exhausted
+            const shouldRetry = await this.onConfirm(
+              `"${stepDescription}" failed after ${MAX_RETRIES} attempts.\n\n` +
+              `Error: ${errorMessage}\n\n` +
+              `This could be caused by a temporary network issue, a misconfigured API key, ` +
+              `or a problem with the remote server. You can retry the deployment from the beginning ` +
+              `to try again.\n\n` +
               `Would you like to retry from the beginning?`
             );
 
-            if (shouldContinue) {
-              // Reset to first checkpoint and restart
+            if (shouldRetry) {
               resetToCheckpoint(this.deploymentName, CHECKPOINT_ORDER[0]);
               await this.executeFromCheckpoint(CHECKPOINT_ORDER[0]);
               return;
             } else {
               throw new DeploymentError(
-                `Deployment failed at ${checkpoint}: ${errorMessage}`,
+                `Deployment failed at "${stepDescription}": ${errorMessage}`,
                 checkpoint,
                 retryCount,
                 false
               );
             }
           }
-
-          // Wait before retry
-          await new Promise((resolve) => setTimeout(resolve, 5000));
         }
       }
     }
@@ -573,6 +581,10 @@ export class DeploymentOrchestrator {
       // Ask user for confirmation before opening browser
       const confirmed = await this.onConfirm(
         `Tailscale needs authentication.\n\n` +
+        `Tailscale is a secure networking tool that creates a private VPN between your devices ` +
+        `and your OpenClaw server, so the gateway is only accessible to you.\n\n` +
+        `What is Tailscale? https://tailscale.com/docs/concepts/what-is-tailscale\n` +
+        `OpenClaw Tailscale docs: https://docs.openclaw.ai/gateway/tailscale\n\n` +
         `Would you like to open your browser to authenticate?\n\n` +
         `URL: ${authUrl}`
       );

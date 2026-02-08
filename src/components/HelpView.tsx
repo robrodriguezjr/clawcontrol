@@ -125,9 +125,9 @@ export function HelpView({ context }: Props) {
       {/* Links */}
       <box flexDirection="column" marginBottom={1}>
         <text fg="white">Useful Links</text>
-        <text fg="blue">• OpenClaw Docs: https://docs.openclaw.ai/</text>
-        <text fg="blue">• Hetzner API: https://docs.hetzner.cloud/</text>
-        <text fg="blue">• Tailscale: https://tailscale.com/</text>
+        <text fg="gray">• OpenClaw Docs: https://docs.openclaw.ai/</text>
+        <text fg="gray">• Hetzner API: https://docs.hetzner.cloud/</text>
+        <text fg="gray">• Tailscale: https://tailscale.com/</text>
       </box>
 
       <text fg="yellow">Press any key to return to home</text>
