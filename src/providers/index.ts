@@ -1,8 +1,9 @@
 export * from "./hetzner/index.js";
+export * from "./digitalocean/index.js";
 
 import type { Provider } from "../types/index.js";
 
-export const SUPPORTED_PROVIDERS: Provider[] = ["hetzner"];
+export const SUPPORTED_PROVIDERS: Provider[] = ["hetzner", "digitalocean"];
 
 export const PROVIDER_NAMES: Record<Provider, string> = {
   hetzner: "Hetzner Cloud",

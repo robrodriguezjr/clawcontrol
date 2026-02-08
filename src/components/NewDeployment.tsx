@@ -10,6 +10,7 @@ import {
   validateDeploymentName,
 } from "../services/config.js";
 import { createHetznerClient } from "../providers/hetzner/api.js";
+import { createDigitalOceanClient } from "../providers/digitalocean/api.js";
 import { SUPPORTED_PROVIDERS, PROVIDER_NAMES } from "../providers/index.js";
 import { t } from "../theme.js";
 
@@ -31,6 +32,7 @@ type Step =
   | "name"
   | "provider"
   | "api_key"
+  | "droplet_size"
   | "ai_provider"
   | "ai_api_key"
   | "model"
@@ -39,17 +41,36 @@ type Step =
   | "confirm"
   | "complete";
 
-const STEP_LIST: Step[] = [
-  "name",
-  "provider",
-  "api_key",
-  "ai_provider",
-  "ai_api_key",
-  "model",
-  "telegram_bot_token",
-  "telegram_allow_from",
-  "confirm",
+const DO_DROPLET_SIZES = [
+  //NOTE: Minimum size for running OpenClaw without heap out of memory errors is 2GB RAM
+  // { slug: "s-1vcpu-512mb", label: "1 vCPU, 512MB RAM, 10GB SSD", price: "$4/mo" },
+  // { slug: "s-1vcpu-1gb", label: "1 vCPU, 1GB RAM, 25GB SSD", price: "$6/mo" },
+  { slug: "s-1vcpu-2gb", label: "1 vCPU, 2GB RAM, 50GB SSD", price: "$12/mo" },
+  { slug: "s-2vcpu-2gb", label: "2 vCPU, 2GB RAM, 60GB SSD", price: "$18/mo" },
+  { slug: "s-2vcpu-4gb", label: "2 vCPU, 4GB RAM, 80GB SSD", price: "$24/mo" },
+  { slug: "s-4vcpu-8gb", label: "4 vCPU, 8GB RAM, 160GB SSD", price: "$48/mo" },
+  { slug: "s-8vcpu-16gb", label: "8 vCPU, 16GB RAM, 320GB SSD", price: "$96/mo" },
 ];
+
+function getStepList(provider: Provider): Step[] {
+  const base: Step[] = [
+    "name",
+    "provider",
+    "api_key",
+  ];
+  if (provider === "digitalocean") {
+    base.push("droplet_size");
+  }
+  base.push(
+    "ai_provider",
+    "ai_api_key",
+    "model",
+    "telegram_bot_token",
+    "telegram_allow_from",
+    "confirm",
+  );
+  return base;
+}
 
 const AI_PROVIDERS = [
   { name: "anthropic", label: "Anthropic", description: "Claude models (Recommended)" },
@@ -64,6 +85,7 @@ export function NewDeployment({ context }: Props) {
   const [name, setName] = useState("");
   const [provider, setProvider] = useState<Provider>("hetzner");
   const [apiKey, setApiKey] = useState("");
+  const [selectedDropletSizeIndex, setSelectedDropletSizeIndex] = useState(0); // default s-1vcpu-1gb
   const [aiProvider, setAiProvider] = useState("");
   const [aiApiKey, setAiApiKey] = useState("");
   const [model, setModel] = useState("");
@@ -77,20 +99,24 @@ export function NewDeployment({ context }: Props) {
   // Use refs to avoid stale closures in useKeyboard callback
   const stateRef = useRef({
     name, provider, apiKey, aiProvider, aiApiKey, model, telegramBotToken, telegramAllowFrom, step,
+    selectedDropletSizeIndex,
   });
   stateRef.current = {
     name, provider, apiKey, aiProvider, aiApiKey, model, telegramBotToken, telegramAllowFrom, step,
+    selectedDropletSizeIndex,
   };
 
   debugLog(`RENDER: step=${step}, apiKey.length=${apiKey?.length ?? "null"}`);
+
+  const stepList = getStepList(provider);
 
   const handleConfirmFromRef = () => {
     const s = stateRef.current;
 
     debugLog(`handleConfirmFromRef CALLED: apiKey.length=${s.apiKey?.length ?? "null"}`);
 
-    if (s.provider === "hetzner" && !s.apiKey.trim()) {
-      setError("Hetzner API key is missing. Please go back and re-enter your API key.");
+    if (!s.apiKey.trim()) {
+      setError("API key is missing. Please go back and re-enter your API key.");
       setStep("api_key");
       return;
     }
@@ -136,6 +162,12 @@ export function NewDeployment({ context }: Props) {
           location: "ash",
           image: "ubuntu-24.04",
         } : undefined,
+        digitalocean: s.provider === "digitalocean" ? {
+          apiKey: s.apiKey,
+          size: DO_DROPLET_SIZES[s.selectedDropletSizeIndex].slug,
+          region: "nyc1",
+          image: "ubuntu-24-04-x64",
+        } : undefined,
         openclawConfig: undefined,
         openclawAgent: {
           aiProvider: s.aiProvider,
@@ -155,7 +187,7 @@ export function NewDeployment({ context }: Props) {
     }
   };
 
-  // Handle keyboard for provider selection, confirm, and complete steps
+  // Handle keyboard for provider selection, droplet size, confirm, and complete steps
   useKeyboard((key) => {
     const currentState = stateRef.current;
     debugLog(`useKeyboard: key=${key.name}, step=${currentState.step}`);
@@ -169,6 +201,17 @@ export function NewDeployment({ context }: Props) {
       } else if (key.name === "escape") {
         setStep("name");
       }
+    } else if (currentState.step === "droplet_size") {
+      if (key.name === "up") {
+        setSelectedDropletSizeIndex((prev) => Math.max(0, prev - 1));
+      } else if (key.name === "down") {
+        setSelectedDropletSizeIndex((prev) => Math.min(DO_DROPLET_SIZES.length - 1, prev + 1));
+      } else if (key.name === "return") {
+        setError(null);
+        setStep("ai_provider");
+      } else if (key.name === "escape") {
+        setStep("api_key");
+      }
     } else if (currentState.step === "ai_provider") {
       if (key.name === "up") {
         setSelectedAiProviderIndex((prev) => Math.max(0, prev - 1));
@@ -177,7 +220,11 @@ export function NewDeployment({ context }: Props) {
       } else if (key.name === "return") {
         handleAiProviderSubmit();
       } else if (key.name === "escape") {
-        setStep("api_key");
+        if (currentState.provider === "digitalocean") {
+          setStep("droplet_size");
+        } else {
+          setStep("api_key");
+        }
       }
     } else if (currentState.step === "confirm") {
       if (key.name === "y" || key.name === "return") {
@@ -217,8 +264,14 @@ export function NewDeployment({ context }: Props) {
     setError(null);
 
     try {
-      const client = createHetznerClient(apiKey);
-      const isValid = await client.validateAPIKey();
+      let isValid: boolean;
+      if (provider === "digitalocean") {
+        const client = createDigitalOceanClient(apiKey);
+        isValid = await client.validateAPIKey();
+      } else {
+        const client = createHetznerClient(apiKey);
+        isValid = await client.validateAPIKey();
+      }
 
       if (!isValid) {
         setError("Invalid API key. Please check and try again.");
@@ -226,8 +279,12 @@ export function NewDeployment({ context }: Props) {
         return;
       }
 
-      debugLog(`  SUCCESS: Moving to ai_provider step`);
-      setStep("ai_provider");
+      debugLog(`  SUCCESS: Moving to next step`);
+      if (provider === "digitalocean") {
+        setStep("droplet_size");
+      } else {
+        setStep("ai_provider");
+      }
     } catch (err) {
       setError(`Failed to validate API key: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -298,12 +355,42 @@ export function NewDeployment({ context }: Props) {
     return "e.g. claude-sonnet-4-20250514";
   };
 
+  const getApiKeyLabel = (): string => {
+    if (provider === "digitalocean") return "DigitalOcean API Token";
+    return "Hetzner API Key";
+  };
+
+  const getApiKeyHelpUrl = (): string => {
+    if (provider === "digitalocean") {
+      return "https://docs.digitalocean.com/reference/api/create-personal-access-token/";
+    }
+    return "https://docs.hetzner.com/cloud/api/getting-started/generating-api-token";
+  };
+
+  const getServerSpecsLabel = (): string => {
+    if (provider === "digitalocean") {
+      const size = DO_DROPLET_SIZES[selectedDropletSizeIndex];
+      return `${size.slug} (${size.label})`;
+    }
+    return "CPX11 (2 vCPU, 2GB RAM, 40GB SSD)";
+  };
+
+  const getLocationLabel = (): string => {
+    if (provider === "digitalocean") return "NYC1 (New York 1)";
+    return "Ashburn, VA (US East)";
+  };
+
+  const currentStepNumber = (s: Step): number => {
+    const idx = stepList.indexOf(s);
+    return idx >= 0 ? idx + 1 : 0;
+  };
+
   const renderStep = () => {
     switch (step) {
       case "name":
         return (
           <box flexDirection="column">
-            <text fg={t.accent}>Step 1: Deployment Name</text>
+            <text fg={t.accent}>Step {currentStepNumber("name")}: Deployment Name</text>
             <text fg={t.fg.secondary} marginTop={1}>
               Enter a unique name for this deployment (lowercase, alphanumeric, hyphens allowed):
             </text>
@@ -332,7 +419,7 @@ export function NewDeployment({ context }: Props) {
       case "provider":
         return (
           <box flexDirection="column">
-            <text fg={t.accent}>Step 2: Cloud Provider</text>
+            <text fg={t.accent}>Step {currentStepNumber("provider")}: Cloud Provider</text>
             <text fg={t.fg.secondary} marginTop={1}>Select where to deploy (use arrow keys and Enter):</text>
             <box
               flexDirection="column"
@@ -343,10 +430,10 @@ export function NewDeployment({ context }: Props) {
             >
               {SUPPORTED_PROVIDERS.map((p, i) => {
                 const isSelected = i === selectedProviderIndex;
-                const desc = p !== "hetzner" ? "Coming soon" : "Recommended - US East";
+                const desc = p === "hetzner" ? "Recommended - US East" : "NYC1 - New York";
                 return (
                   <box key={p} flexDirection="row" backgroundColor={isSelected ? t.selection.bg : undefined}>
-                    <text fg={isSelected ? t.selection.indicator : t.fg.primary}>{isSelected ? "❯ " : "  "}</text>
+                    <text fg={isSelected ? t.selection.indicator : t.fg.primary}>{isSelected ? ">" : " "} </text>
                     <text fg={isSelected ? t.selection.indicator : t.fg.primary}>{PROVIDER_NAMES[p]}</text>
                     <text fg={isSelected ? t.fg.primary : t.fg.secondary}>{" - " + desc}</text>
                   </box>
@@ -360,15 +447,15 @@ export function NewDeployment({ context }: Props) {
       case "api_key":
         return (
           <box flexDirection="column">
-            <text fg={t.accent}>Step 3: Hetzner API Key</text>
-            <text fg={t.fg.secondary} marginTop={1}>Enter your Hetzner Cloud API token.</text>
+            <text fg={t.accent}>Step {currentStepNumber("api_key")}: {getApiKeyLabel()}</text>
+            <text fg={t.fg.secondary} marginTop={1}>Enter your {getApiKeyLabel()}.</text>
             <text fg={t.fg.secondary} marginTop={1}>
-              Get one at: https://docs.hetzner.com/cloud/api/getting-started/generating-api-token
+              Get one at: {getApiKeyHelpUrl()}
             </text>
             <text fg={t.fg.primary} marginTop={2}>API Key:</text>
             <input
               value={apiKey}
-              placeholder="Enter your Hetzner API key..."
+              placeholder={`Enter your ${getApiKeyLabel()}...`}
               focused
               onInput={(value) => {
                 debugLog(`API_KEY onInput: value.type=${typeof value}, currentStep=${stateRef.current.step}`);
@@ -392,10 +479,39 @@ export function NewDeployment({ context }: Props) {
           </box>
         );
 
+      case "droplet_size":
+        return (
+          <box flexDirection="column">
+            <text fg={t.accent}>Step {currentStepNumber("droplet_size")}: Droplet Size</text>
+            <text fg={t.fg.secondary} marginTop={1}>Select your DigitalOcean droplet size (use arrow keys and Enter):</text>
+            <text fg={t.fg.muted} marginTop={1}>NOTE: Minimum size for running OpenClaw without heap out of memory errors is 2GB RAM</text>
+            <box
+              flexDirection="column"
+              borderStyle="single"
+              borderColor={t.border.default}
+              marginTop={1}
+              padding={1}
+            >
+              {DO_DROPLET_SIZES.map((size, i) => {
+                const isSelected = i === selectedDropletSizeIndex;
+                return (
+                  <box key={size.slug} flexDirection="row" backgroundColor={isSelected ? t.selection.bg : undefined}>
+                    <text fg={isSelected ? t.selection.indicator : t.fg.primary}>{isSelected ? ">" : " "} </text>
+                    <text fg={isSelected ? t.selection.indicator : t.fg.primary}>{size.slug}</text>
+                    <text fg={isSelected ? t.fg.primary : t.fg.secondary}>{" - " + size.label + " - " + size.price}</text>
+                  </box>
+                );
+              })}
+            </box>
+            {error && <text fg={t.status.error} marginTop={1}>{error}</text>}
+            <text fg={t.fg.muted} marginTop={1}>Press Enter to select, Esc to go back</text>
+          </box>
+        );
+
       case "ai_provider":
         return (
           <box flexDirection="column">
-            <text fg={t.accent}>Step 4: AI Provider</text>
+            <text fg={t.accent}>Step {currentStepNumber("ai_provider")}: AI Provider</text>
             <text fg={t.fg.secondary} marginTop={1}>Select your AI model provider (use arrow keys and Enter):</text>
             <box
               flexDirection="column"
@@ -408,7 +524,7 @@ export function NewDeployment({ context }: Props) {
                 const isSelected = i === selectedAiProviderIndex;
                 return (
                   <box key={p.name} flexDirection="row" backgroundColor={isSelected ? t.selection.bg : undefined}>
-                    <text fg={isSelected ? t.selection.indicator : t.fg.primary}>{isSelected ? "❯ " : "  "}</text>
+                    <text fg={isSelected ? t.selection.indicator : t.fg.primary}>{isSelected ? ">" : " "} </text>
                     <text fg={isSelected ? t.selection.indicator : t.fg.primary}>{p.label}</text>
                     <text fg={isSelected ? t.fg.primary : t.fg.secondary}>{" - " + p.description}</text>
                   </box>
@@ -423,7 +539,7 @@ export function NewDeployment({ context }: Props) {
       case "ai_api_key":
         return (
           <box flexDirection="column">
-            <text fg={t.accent}>Step 5: AI Provider API Key</text>
+            <text fg={t.accent}>Step {currentStepNumber("ai_api_key")}: AI Provider API Key</text>
             <text fg={t.fg.secondary} marginTop={1}>
               Enter your {aiProvider || "AI provider"} API key ({getAiProviderHint()}).
             </text>
@@ -452,7 +568,7 @@ export function NewDeployment({ context }: Props) {
       case "model":
         return (
           <box flexDirection="column">
-            <text fg={t.accent}>Step 6: Default Model</text>
+            <text fg={t.accent}>Step {currentStepNumber("model")}: Default Model</text>
             <text fg={t.fg.secondary} marginTop={1}>
               Enter the model identifier for {aiProvider || "your AI provider"}.
             </text>
@@ -484,7 +600,7 @@ export function NewDeployment({ context }: Props) {
       case "telegram_bot_token":
         return (
           <box flexDirection="column">
-            <text fg={t.accent}>Step 7: Telegram Bot Token</text>
+            <text fg={t.accent}>Step {currentStepNumber("telegram_bot_token")}: Telegram Bot Token</text>
             <text fg={t.fg.secondary} marginTop={1}>
               Enter your Telegram bot token. Create one via @BotFather on Telegram.
             </text>
@@ -516,7 +632,7 @@ export function NewDeployment({ context }: Props) {
       case "telegram_allow_from":
         return (
           <box flexDirection="column">
-            <text fg={t.accent}>Step 8: Telegram Access Control</text>
+            <text fg={t.accent}>Step {currentStepNumber("telegram_allow_from")}: Telegram Access Control</text>
             <text fg={t.fg.secondary} marginTop={1}>
               Enter your Telegram user ID or @username to restrict bot access.
             </text>
@@ -554,7 +670,7 @@ export function NewDeployment({ context }: Props) {
       case "confirm":
         return (
           <box flexDirection="column">
-            <text fg={t.accent}>Step 9: Confirm Configuration</text>
+            <text fg={t.accent}>Step {currentStepNumber("confirm")}: Confirm Configuration</text>
             <box
               flexDirection="column"
               borderStyle="single"
@@ -572,11 +688,11 @@ export function NewDeployment({ context }: Props) {
               </box>
               <box flexDirection="row">
                 <text fg={t.fg.secondary} width={20}>Server Type:</text>
-                <text fg={t.fg.primary}>CPX11 (2 vCPU, 2GB RAM, 40GB SSD)</text>
+                <text fg={t.fg.primary}>{getServerSpecsLabel()}</text>
               </box>
               <box flexDirection="row">
                 <text fg={t.fg.secondary} width={20}>Location:</text>
-                <text fg={t.fg.primary}>Ashburn, VA (US East)</text>
+                <text fg={t.fg.primary}>{getLocationLabel()}</text>
               </box>
               <box flexDirection="row">
                 <text fg={t.fg.secondary} width={20}>OS:</text>
@@ -651,13 +767,13 @@ export function NewDeployment({ context }: Props) {
 
       {/* Progress indicator */}
       <box flexDirection="row" marginBottom={2}>
-        {STEP_LIST.map((s, i) => {
-          const currentIdx = STEP_LIST.indexOf(step);
+        {stepList.map((s, i) => {
+          const currentIdx = stepList.indexOf(step);
           const stepColor = step === s ? t.accent : currentIdx > i ? t.status.success : t.fg.muted;
           return (
             <box key={s} flexDirection="row">
               <text fg={stepColor}>{i + 1}</text>
-              {i < STEP_LIST.length - 1 && <text fg={t.fg.muted}> → </text>}
+              {i < stepList.length - 1 && <text fg={t.fg.muted}> → </text>}
             </box>
           );
         })}

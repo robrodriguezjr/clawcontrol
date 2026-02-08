@@ -80,6 +80,56 @@ export const HetznerConfigSchema = z.object({
 
 export type HetznerConfig = z.infer<typeof HetznerConfigSchema>;
 
+// DigitalOcean-specific config
+export const DigitalOceanConfigSchema = z.object({
+  apiKey: z.string().min(1, "DigitalOcean API token is required"),
+  size: z.string().default("s-1vcpu-2gb"),
+  region: z.string().default("nyc1"),
+  image: z.string().default("ubuntu-24-04-x64"),
+});
+
+export type DigitalOceanConfig = z.infer<typeof DigitalOceanConfigSchema>;
+
+// DigitalOcean API types
+export interface DODroplet {
+  id: number;
+  name: string;
+  status: string;
+  networks: {
+    v4: { ip_address: string; type: string }[];
+    v6: { ip_address: string; type: string }[];
+  };
+  size_slug: string;
+  region: { slug: string; name: string };
+  image: { slug: string; name: string };
+  created_at: string;
+}
+
+export interface DOSSHKey {
+  id: number;
+  name: string;
+  fingerprint: string;
+  public_key: string;
+}
+
+export interface DOSize {
+  slug: string;
+  memory: number;
+  vcpus: number;
+  disk: number;
+  transfer: number;
+  price_monthly: number;
+  available: boolean;
+  regions: string[];
+}
+
+export interface DORegion {
+  slug: string;
+  name: string;
+  available: boolean;
+  sizes: string[];
+}
+
 // OpenClaw custom config (optional overrides)
 export const OpenClawConfigSchema = z
   .object({
@@ -119,6 +169,7 @@ export const DeploymentConfigSchema = z.object({
   provider: ProviderSchema,
   createdAt: z.string(),
   hetzner: HetznerConfigSchema.optional(),
+  digitalocean: DigitalOceanConfigSchema.optional(),
   openclawConfig: OpenClawConfigSchema,
   openclawAgent: OpenClawAgentConfigSchema.optional(),
 });

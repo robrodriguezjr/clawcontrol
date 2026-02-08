@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/react";
 import type { AppContext } from "../App.js";
 import { deleteDeployment } from "../services/config.js";
 import { createHetznerClient } from "../providers/hetzner/api.js";
+import { createDigitalOceanClient } from "../providers/digitalocean/api.js";
 import { t } from "../theme.js";
 
 interface Props {
@@ -28,8 +29,8 @@ export function DestroyView({ context }: Props) {
         throw new Error("Deployment not found");
       }
 
-      // If server exists, delete it from Hetzner
-      if (deployment.state.serverId && deployment.config.hetzner) {
+      // If server exists, delete it from the cloud provider
+      if (deployment.state.serverId && deployment.config.provider === "hetzner" && deployment.config.hetzner) {
         const client = createHetznerClient(deployment.config.hetzner.apiKey);
 
         try {
@@ -39,10 +40,25 @@ export function DestroyView({ context }: Props) {
           console.error("Failed to delete server:", err);
         }
 
-        // Delete SSH key from Hetzner if exists
         if (deployment.state.sshKeyId) {
           try {
             await client.deleteSSHKey(parseInt(deployment.state.sshKeyId));
+          } catch {
+            // SSH key might already be deleted
+          }
+        }
+      } else if (deployment.state.serverId && deployment.config.provider === "digitalocean" && deployment.config.digitalocean) {
+        const client = createDigitalOceanClient(deployment.config.digitalocean.apiKey);
+
+        try {
+          await client.deleteDroplet(parseInt(deployment.state.serverId));
+        } catch (err) {
+          console.error("Failed to delete droplet:", err);
+        }
+
+        if (deployment.state.sshKeyId) {
+          try {
+            await client.deleteSSHKey(deployment.state.sshKeyId);
           } catch {
             // SSH key might already be deleted
           }

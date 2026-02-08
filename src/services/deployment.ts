@@ -18,6 +18,7 @@ import {
   type SSHConnection,
 } from "./ssh.js";
 import { createHetznerClient, HetznerAPIError } from "../providers/hetzner/api.js";
+import { createDigitalOceanClient, DigitalOceanAPIError } from "../providers/digitalocean/api.js";
 import * as SetupScripts from "./setup/index.js";
 
 const MAX_RETRIES = 3;
@@ -355,8 +356,20 @@ export class DeploymentOrchestrator {
   private async createServer(): Promise<void> {
     const config = this.deployment.config;
 
-    if (config.provider !== "hetzner" || !config.hetzner) {
-      throw new Error("Only Hetzner is supported at this time");
+    if (config.provider === "hetzner") {
+      await this.createHetznerServer();
+    } else if (config.provider === "digitalocean") {
+      await this.createDigitalOceanServer();
+    } else {
+      throw new Error(`Unsupported provider: ${config.provider}`);
+    }
+  }
+
+  private async createHetznerServer(): Promise<void> {
+    const config = this.deployment.config;
+
+    if (!config.hetzner) {
+      throw new Error("Hetzner configuration is missing");
     }
 
     const client = createHetznerClient(config.hetzner.apiKey);
@@ -371,33 +384,28 @@ export class DeploymentOrchestrator {
     if (!localKeysExist && (state.serverId || state.sshKeyId)) {
       this.reportProgress("server_created", "Local SSH keys missing, cleaning up remote resources...");
 
-      // Delete existing server if any
       if (state.serverId) {
         try {
           await client.deleteServer(Number(state.serverId));
           this.reportProgress("server_created", "Deleted existing server...");
         } catch (error) {
-          // Ignore if server doesn't exist
           if (!(error instanceof HetznerAPIError && error.code === "not_found")) {
             throw error;
           }
         }
       }
 
-      // Delete existing SSH key from Hetzner if any
       if (state.sshKeyId) {
         try {
           await client.deleteSSHKey(Number(state.sshKeyId));
           this.reportProgress("server_created", "Deleted existing SSH key...");
         } catch (error) {
-          // Ignore if key doesn't exist
           if (!(error instanceof HetznerAPIError && error.code === "not_found")) {
             throw error;
           }
         }
       }
 
-      // Reset state
       updateDeploymentState(config.name, {
         serverId: undefined,
         serverIp: undefined,
@@ -406,15 +414,12 @@ export class DeploymentOrchestrator {
       });
     }
 
-    // Generate new SSH key pair if needed
     if (!keyPair) {
       this.reportProgress("server_created", "Generating SSH key pair...");
       keyPair = generateSSHKeyPair(sshKeyName);
       saveSSHKeyPair(config.name, keyPair);
     }
 
-    // Check if SSH key already exists on Hetzner with the same name and delete it
-    // (in case of previous partial cleanup)
     const existingKeys = await client.listSSHKeys();
     const existingKey = existingKeys.find((k) => k.name === sshKeyName);
     if (existingKey) {
@@ -422,7 +427,6 @@ export class DeploymentOrchestrator {
       await client.deleteSSHKey(existingKey.id);
     }
 
-    // Upload SSH key to Hetzner
     this.reportProgress("server_created", "Uploading SSH key to Hetzner...");
     const sshKey = await client.createSSHKey(sshKeyName, keyPair.publicKey);
 
@@ -431,17 +435,14 @@ export class DeploymentOrchestrator {
       sshKeyFingerprint: sshKey.fingerprint,
     });
 
-    // Check if server already exists with the same name and delete it
     const existingServers = await client.listServers();
     const existingServer = existingServers.find((s) => s.name === config.name);
     if (existingServer) {
       this.reportProgress("server_created", "Removing existing server with same name...");
       await client.deleteServer(existingServer.id);
-      // Wait a bit for deletion to complete
       await new Promise((resolve) => setTimeout(resolve, 5000));
     }
 
-    // Create server - using cpx11 for US-East (best price at $4.99/mo)
     this.reportProgress("server_created", "Creating VPS server...");
     const result = await client.createServer({
       name: config.name,
@@ -456,12 +457,117 @@ export class DeploymentOrchestrator {
       serverId: String(result.server.id),
     });
 
-    // Wait for server to be running
     this.reportProgress("server_created", "Waiting for server to start...");
     const server = await client.waitForServerRunning(result.server.id);
 
     updateDeploymentState(config.name, {
       serverIp: server.public_net.ipv4.ip,
+    });
+  }
+
+  private async createDigitalOceanServer(): Promise<void> {
+    const config = this.deployment.config;
+
+    if (!config.digitalocean) {
+      throw new Error("DigitalOcean configuration is missing");
+    }
+
+    const client = createDigitalOceanClient(config.digitalocean.apiKey);
+    const state = readDeploymentState(this.deploymentName);
+    const sshKeyName = `clawcontrol-${config.name}`;
+
+    // Check if local SSH keys exist
+    let keyPair = loadSSHKeyPair(config.name);
+    const localKeysExist = keyPair !== null;
+
+    // If local keys don't exist but we have remote resources, we need to clean up
+    if (!localKeysExist && (state.serverId || state.sshKeyId)) {
+      this.reportProgress("server_created", "Local SSH keys missing, cleaning up remote resources...");
+
+      if (state.serverId) {
+        try {
+          await client.deleteDroplet(Number(state.serverId));
+          this.reportProgress("server_created", "Deleted existing droplet...");
+        } catch (error) {
+          if (!(error instanceof DigitalOceanAPIError && error.code === "not_found")) {
+            throw error;
+          }
+        }
+      }
+
+      if (state.sshKeyId) {
+        try {
+          await client.deleteSSHKey(state.sshKeyId);
+          this.reportProgress("server_created", "Deleted existing SSH key...");
+        } catch (error) {
+          if (!(error instanceof DigitalOceanAPIError && error.code === "not_found")) {
+            throw error;
+          }
+        }
+      }
+
+      updateDeploymentState(config.name, {
+        serverId: undefined,
+        serverIp: undefined,
+        sshKeyId: undefined,
+        sshKeyFingerprint: undefined,
+      });
+    }
+
+    if (!keyPair) {
+      this.reportProgress("server_created", "Generating SSH key pair...");
+      keyPair = generateSSHKeyPair(sshKeyName);
+      saveSSHKeyPair(config.name, keyPair);
+    }
+
+    // Clean up stale SSH keys on DigitalOcean
+    const existingKeys = await client.listSSHKeys();
+    const existingKey = existingKeys.find((k) => k.name === sshKeyName);
+    if (existingKey) {
+      this.reportProgress("server_created", "Removing stale SSH key from DigitalOcean...");
+      await client.deleteSSHKey(existingKey.id);
+    }
+
+    this.reportProgress("server_created", "Uploading SSH key to DigitalOcean...");
+    const sshKey = await client.createSSHKey(sshKeyName, keyPair.publicKey);
+
+    updateDeploymentState(config.name, {
+      sshKeyId: String(sshKey.id),
+      sshKeyFingerprint: sshKey.fingerprint,
+    });
+
+    // Remove existing droplet with same name
+    const existingDroplets = await client.listDroplets();
+    const existingDroplet = existingDroplets.find((d) => d.name === config.name);
+    if (existingDroplet) {
+      this.reportProgress("server_created", "Removing existing droplet with same name...");
+      await client.deleteDroplet(existingDroplet.id);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+
+    this.reportProgress("server_created", "Creating droplet...");
+    const result = await client.createDroplet({
+      name: config.name,
+      size: config.digitalocean.size || "s-1vcpu-2gb",
+      image: config.digitalocean.image || "ubuntu-24-04-x64",
+      region: config.digitalocean.region || "nyc1",
+      ssh_keys: [sshKey.id],
+    });
+
+    updateDeploymentState(config.name, {
+      serverId: String(result.droplet.id),
+    });
+
+    this.reportProgress("server_created", "Waiting for droplet to become active...");
+    const droplet = await client.waitForDropletActive(result.droplet.id);
+
+    const publicIp = droplet.networks.v4.find((n) => n.type === "public")?.ip_address;
+    if (!publicIp) {
+      throw new Error("Droplet has no public IPv4 address");
+    }
+
+    updateDeploymentState(config.name, {
+      serverIp: publicIp,
     });
   }
 
