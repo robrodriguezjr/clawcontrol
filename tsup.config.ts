@@ -6,9 +6,9 @@ export default defineConfig({
   clean: true,
   target: "es2022",
   platform: "node",
-  banner: {
-    js: "#!/usr/bin/env bun",
-  },
+  // No shebang banner needed — dist/index.js is invoked by bin/clawcontrol.js
+  // which explicitly delegates to `bun`.
+  //
   // @opentui/core uses bun:ffi and Bun-specific import attributes, so it
   // must stay external and be resolved at runtime by the Bun runtime.
   external: [
