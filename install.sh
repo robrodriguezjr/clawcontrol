@@ -298,47 +298,24 @@ printf "${GREEN}${BOLD}  ──────────────────�
 printf "${GREEN}${BOLD}  ClawControl is ready!${RESET}\n"
 printf "${GREEN}${BOLD}  ──────────────────────────────────────────${RESET}\n"
 printf "\n"
-
-SHELL_RC="$(get_shell_rc)"
-
-# Ask the user if they want to launch ClawControl right now.
-# We read from /dev/tty because stdin is the piped script when using curl|bash.
-printf "  Would you like to launch ${BOLD}ClawControl${RESET} now? ${CYAN}[Y/n]${RESET} "
-if [ -t 0 ]; then
-  read -r REPLY
-else
-  read -r REPLY < /dev/tty 2>/dev/null || REPLY="n"
-fi
-
-case "${REPLY:-Y}" in
-  [nN]*)
-    printf "\n"
-    printf "  To make ${BOLD}clawcontrol${RESET} available everywhere, reload your shell:\n"
-    printf "\n"
-    printf "    ${CYAN}exec \$SHELL${RESET}\n"
-    printf "    ${CYAN}clawcontrol${RESET}\n"
-    printf "\n"
-    printf "  Or run it right now with the full path:\n"
-    printf "\n"
-    printf "    ${CYAN}${CLAWCONTROL_BIN}${RESET}\n"
-    ;;
-  *)
-    printf "\n"
-    info "Launching ClawControl..."
-    printf "\n"
-    # Run using the resolved full path — bypasses PATH entirely so it works
-    # even before the user has reloaded their shell.
-    "$CLAWCONTROL_BIN"
-
-    printf "\n"
-    printf "  ${DIM}To use ${BOLD}clawcontrol${RESET}${DIM} by name in this terminal, reload your shell:${RESET}\n"
-    printf "\n"
-    printf "    ${CYAN}exec \$SHELL${RESET}\n"
-    ;;
-esac
-
-printf "\n"
-printf "  Type ${BOLD}/new${RESET} to create your first deployment.\n"
+printf "  Get started by typing ${BOLD}/new${RESET} to create your first deployment.\n"
 printf "\n"
 printf "${DIM}  Docs: https://openclaw.ai  •  Issues: https://github.com/ipenywis/clawcontrol/issues${RESET}\n"
 printf "\n"
+
+# ─── Seamlessly reload the shell ────────────────────────────────────────────
+# When invoked via `curl | bash`, this script runs in a child bash process.
+# `exec $SHELL -l` replaces that child with a fresh login shell that reads the
+# updated rc file (with ~/.bun/bin on PATH), so `clawcontrol` works immediately
+# without the user having to do anything manually.
+# We redirect stdin from /dev/tty so the new shell is interactive (the pipe from
+# curl is exhausted at this point).
+info "Reloading shell so ${BOLD}clawcontrol${RESET} is available..."
+printf "\n"
+if [ -e /dev/tty ]; then
+  exec "$SHELL" -l < /dev/tty
+else
+  # Fallback: no /dev/tty (e.g. non-interactive CI). Just tell the user.
+  printf "  Run ${CYAN}exec \$SHELL${RESET} or open a new terminal to use ${BOLD}clawcontrol${RESET}.\n"
+  printf "\n"
+fi
