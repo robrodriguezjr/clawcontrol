@@ -52,6 +52,95 @@ esac
 
 success "Detected ${OS_NAME} (${ARCH_NAME})"
 
+# ─── Install system dependencies ───────────────────────────────────────────
+step "Checking system dependencies"
+
+# Tools required by the rest of this script and by Bun/nvm installers:
+#   curl   – downloading installers (already needed to run this script)
+#   unzip  – Bun installer extracts its binary with unzip on Linux
+#   git    – nvm and general tooling
+#   tar    – nvm Node.js install
+REQUIRED_CMDS=(curl unzip git tar)
+
+missing=()
+for cmd in "${REQUIRED_CMDS[@]}"; do
+  if ! command -v "$cmd" &>/dev/null; then
+    missing+=("$cmd")
+  fi
+done
+
+if [ ${#missing[@]} -eq 0 ]; then
+  success "All dependencies found (${REQUIRED_CMDS[*]})"
+else
+  warn "Missing: ${missing[*]}"
+
+  # ── Detect system package manager and install ──
+  install_pkgs() {
+    if command -v apt-get &>/dev/null; then
+      info "Installing via apt-get..."
+      sudo apt-get update -qq
+      sudo apt-get install -y -qq "$@"
+    elif command -v dnf &>/dev/null; then
+      info "Installing via dnf..."
+      sudo dnf install -y -q "$@"
+    elif command -v yum &>/dev/null; then
+      info "Installing via yum..."
+      sudo yum install -y -q "$@"
+    elif command -v pacman &>/dev/null; then
+      info "Installing via pacman..."
+      sudo pacman -Sy --noconfirm "$@"
+    elif command -v zypper &>/dev/null; then
+      info "Installing via zypper..."
+      sudo zypper install -y "$@"
+    elif command -v apk &>/dev/null; then
+      info "Installing via apk..."
+      sudo apk add --no-cache "$@"
+    elif command -v brew &>/dev/null; then
+      info "Installing via Homebrew..."
+      brew install "$@"
+    else
+      error "Could not detect a package manager. Please install these manually: ${missing[*]}"
+      exit 1
+    fi
+  }
+
+  if [ "$OS_NAME" = "macOS" ]; then
+    # macOS: curl, unzip, tar, git are all pre-installed in most setups.
+    # If anything is truly missing, try Homebrew.
+    if command -v brew &>/dev/null; then
+      info "Installing missing tools via Homebrew..."
+      brew install "${missing[@]}"
+    else
+      # Install Xcode Command Line Tools (provides git, tar, etc.)
+      if [[ " ${missing[*]} " =~ " git " ]]; then
+        info "Installing Xcode Command Line Tools (provides git)..."
+        xcode-select --install 2>/dev/null || true
+        warn "If prompted, accept the Xcode CLI Tools dialog, then re-run this script."
+        exit 1
+      fi
+      error "Could not auto-install: ${missing[*]}. Please install Homebrew (https://brew.sh) and re-run."
+      exit 1
+    fi
+  else
+    install_pkgs "${missing[@]}"
+  fi
+
+  # Verify everything was installed
+  still_missing=()
+  for cmd in "${missing[@]}"; do
+    if ! command -v "$cmd" &>/dev/null; then
+      still_missing+=("$cmd")
+    fi
+  done
+
+  if [ ${#still_missing[@]} -ne 0 ]; then
+    error "Failed to install: ${still_missing[*]}. Please install them manually and re-run."
+    exit 1
+  fi
+
+  success "Installed ${missing[*]}"
+fi
+
 # ─── Check Bun ──────────────────────────────────────────────────────────────
 step "Checking Bun runtime"
 

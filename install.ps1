@@ -64,6 +64,39 @@ Write-Step "Detecting system"
 $arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
 Write-Success "Windows ($arch)"
 
+# ─── Check system dependencies ──────────────────────────────────────────────
+
+Write-Step "Checking system dependencies"
+
+$hasWinget = $null -ne (Get-Command winget -ErrorAction SilentlyContinue)
+$depsNeeded = @()
+
+# git — needed for general tooling and nvm-windows
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) { $depsNeeded += "git" }
+
+if ($depsNeeded.Count -eq 0) {
+    Write-Success "All dependencies found (git)"
+} else {
+    Write-Warn "Missing: $($depsNeeded -join ', ')"
+
+    if ($hasWinget) {
+        foreach ($dep in $depsNeeded) {
+            switch ($dep) {
+                "git" {
+                    Write-Info "Installing Git via winget..."
+                    winget install --id Git.Git --accept-source-agreements --accept-package-agreements
+                }
+            }
+        }
+        # Refresh PATH after installs
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        Write-Success "Installed $($depsNeeded -join ', ')"
+    } else {
+        Write-Err "winget is not available. Please install the following manually and re-run: $($depsNeeded -join ', ')"
+        exit 1
+    }
+}
+
 # ─── Check Bun ──────────────────────────────────────────────────────────────
 
 Write-Step "Checking Bun runtime"
