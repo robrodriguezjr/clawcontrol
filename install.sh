@@ -141,8 +141,16 @@ else
   success "Installed ${missing[*]}"
 fi
 
+# Track whether we need to reload the shell at the end
+NEEDS_SHELL_RELOAD=false
+
 # ─── Check Bun ──────────────────────────────────────────────────────────────
 step "Checking Bun runtime"
+
+# Always ensure ~/.bun/bin is on PATH for this session (even if bun was
+# installed in a previous run but the shell profile hasn't been sourced yet)
+export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+export PATH="$BUN_INSTALL/bin:$PATH"
 
 if command -v bun &>/dev/null; then
   BUN_VERSION="$(bun --version)"
@@ -152,13 +160,14 @@ else
   info "Installing Bun..."
   curl -fsSL https://bun.sh/install | bash
 
-  # Source the updated profile so bun is available in this session
+  # Re-export in case the installer changed BUN_INSTALL
   export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
   export PATH="$BUN_INSTALL/bin:$PATH"
 
   if command -v bun &>/dev/null; then
     BUN_VERSION="$(bun --version)"
     success "Bun v${BUN_VERSION} installed"
+    NEEDS_SHELL_RELOAD=true
   else
     error "Bun installation failed. Please install Bun manually: https://bun.sh"
     exit 1
@@ -197,6 +206,7 @@ else
     nvm install "$REQUIRED_NODE_MAJOR"
     nvm use "$REQUIRED_NODE_MAJOR"
     success "Node.js $(node -v) installed via nvm"
+    NEEDS_SHELL_RELOAD=true
   else
     info "Installing nvm..."
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
@@ -206,6 +216,7 @@ else
     nvm install "$REQUIRED_NODE_MAJOR"
     nvm use "$REQUIRED_NODE_MAJOR"
     success "Node.js $(node -v) installed via nvm"
+    NEEDS_SHELL_RELOAD=true
   fi
 fi
 
@@ -231,9 +242,29 @@ printf "${GREEN}${BOLD}  ──────────────────�
 printf "${GREEN}${BOLD}  ClawControl is ready!${RESET}\n"
 printf "${GREEN}${BOLD}  ──────────────────────────────────────────${RESET}\n"
 printf "\n"
-printf "  Get started:\n"
-printf "\n"
-printf "    ${CYAN}clawcontrol${RESET}\n"
+
+if [ "$NEEDS_SHELL_RELOAD" = true ]; then
+  # Detect the user's shell config file
+  USER_SHELL="$(basename "${SHELL:-/bin/bash}")"
+  case "$USER_SHELL" in
+    zsh)  SHELL_RC="$HOME/.zshrc"   ;;
+    fish) SHELL_RC="$HOME/.config/fish/config.fish" ;;
+    *)    SHELL_RC="$HOME/.bashrc"  ;;
+  esac
+
+  printf "  New tools were installed. Reload your shell to use them:\n"
+  printf "\n"
+  printf "    ${CYAN}source ${SHELL_RC} && clawcontrol${RESET}\n"
+  printf "\n"
+  printf "  Or simply open a ${BOLD}new terminal${RESET} and run:\n"
+  printf "\n"
+  printf "    ${CYAN}clawcontrol${RESET}\n"
+else
+  printf "  Get started:\n"
+  printf "\n"
+  printf "    ${CYAN}clawcontrol${RESET}\n"
+fi
+
 printf "\n"
 printf "  Then type ${BOLD}/new${RESET} to create your first deployment.\n"
 printf "\n"
