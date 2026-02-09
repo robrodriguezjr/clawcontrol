@@ -1,17 +1,18 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useKeyboard } from "@opentui/react";
 import { appendFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import type { AppContext } from "../App.js";
-import type { Provider, DeploymentConfig } from "../types/index.js";
+import type { Provider, DeploymentConfig, Template } from "../types/index.js";
 import {
   createDeployment,
   validateDeploymentName,
 } from "../services/config.js";
+import { getAllTemplates } from "../services/templates.js";
 import { createHetznerClient } from "../providers/hetzner/api.js";
 import { createDigitalOceanClient } from "../providers/digitalocean/api.js";
-import { SUPPORTED_PROVIDERS, PROVIDER_NAMES } from "../providers/index.js";
+import { SUPPORTED_PROVIDERS, PROVIDER_NAMES, AI_PROVIDERS } from "../providers/index.js";
 import { t } from "../theme.js";
 
 // Debug logging to file
@@ -29,6 +30,7 @@ interface Props {
 }
 
 type Step =
+  | "template_choice"
   | "name"
   | "provider"
   | "api_key"
@@ -52,63 +54,111 @@ const DO_DROPLET_SIZES = [
   { slug: "s-8vcpu-16gb", label: "8 vCPU, 16GB RAM, 320GB SSD", price: "$96/mo" },
 ];
 
-function getStepList(provider: Provider): Step[] {
-  const base: Step[] = [
-    "name",
-    "provider",
-    "api_key",
-  ];
-  if (provider === "digitalocean") {
-    base.push("droplet_size");
+function getStepList(provider: Provider, activeTemplate: Template | null): Step[] {
+  const base: Step[] = ["template_choice"];
+
+  if (!activeTemplate) {
+    base.push("name", "provider", "api_key");
+    if (provider === "digitalocean") {
+      base.push("droplet_size");
+    }
+    base.push("ai_provider", "ai_api_key", "model", "telegram_bot_token", "telegram_allow_from", "confirm");
+  } else {
+    // Template active: skip provider, ai_provider (auto-set from template)
+    base.push("name", "api_key");
+    if (activeTemplate.provider === "digitalocean") {
+      base.push("droplet_size");
+    }
+    base.push("ai_api_key", "model", "telegram_bot_token", "telegram_allow_from", "confirm");
   }
-  base.push(
-    "ai_provider",
-    "ai_api_key",
-    "model",
-    "telegram_bot_token",
-    "telegram_allow_from",
-    "confirm",
-  );
   return base;
 }
 
-const AI_PROVIDERS = [
-  { name: "anthropic", label: "Anthropic", description: "Claude models (Recommended)" },
-  { name: "openai", label: "OpenAI", description: "GPT-4o, o1, and more" },
-  { name: "openrouter", label: "OpenRouter", description: "Access multiple providers via one API" },
-  { name: "google", label: "Google", description: "Gemini models" },
-  { name: "groq", label: "Groq", description: "Fast inference for open models" },
-];
-
 export function NewDeployment({ context }: Props) {
-  const [step, setStep] = useState<Step>("name");
+  // Template state
+  const [templateChoices, setTemplateChoices] = useState<Array<{ label: string; template: Template | null }>>([]);
+  const [selectedTemplateIndex, setSelectedTemplateIndex] = useState(0);
+  const [activeTemplate, setActiveTemplate] = useState<Template | null>(null);
+
+  const [step, setStep] = useState<Step>(() => {
+    // If navigating from TemplatesView [U]se, skip to name
+    if (context.selectedTemplate) return "name";
+    return "template_choice";
+  });
   const [name, setName] = useState("");
-  const [provider, setProvider] = useState<Provider>("hetzner");
+  const [provider, setProvider] = useState<Provider>(() => {
+    return context.selectedTemplate?.provider ?? "hetzner";
+  });
   const [apiKey, setApiKey] = useState("");
-  const [selectedDropletSizeIndex, setSelectedDropletSizeIndex] = useState(0); // default s-1vcpu-1gb
-  const [aiProvider, setAiProvider] = useState("");
+  const [selectedDropletSizeIndex, setSelectedDropletSizeIndex] = useState(() => {
+    if (context.selectedTemplate?.digitalocean) {
+      const idx = DO_DROPLET_SIZES.findIndex((s) => s.slug === context.selectedTemplate!.digitalocean!.size);
+      return idx >= 0 ? idx : 0;
+    }
+    return 0;
+  });
+  const [aiProvider, setAiProvider] = useState(() => {
+    return context.selectedTemplate?.aiProvider ?? "";
+  });
   const [aiApiKey, setAiApiKey] = useState("");
-  const [model, setModel] = useState("");
+  const [model, setModel] = useState(() => {
+    return context.selectedTemplate?.model ?? "";
+  });
   const [telegramBotToken, setTelegramBotToken] = useState("");
   const [telegramAllowFrom, setTelegramAllowFrom] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(false);
-  const [selectedProviderIndex, setSelectedProviderIndex] = useState(0);
-  const [selectedAiProviderIndex, setSelectedAiProviderIndex] = useState(0);
+  const [selectedProviderIndex, setSelectedProviderIndex] = useState(() => {
+    if (context.selectedTemplate) {
+      const idx = SUPPORTED_PROVIDERS.indexOf(context.selectedTemplate.provider);
+      return idx >= 0 ? idx : 0;
+    }
+    return 0;
+  });
+  const [selectedAiProviderIndex, setSelectedAiProviderIndex] = useState(() => {
+    if (context.selectedTemplate) {
+      const idx = AI_PROVIDERS.findIndex((p) => p.name === context.selectedTemplate!.aiProvider);
+      return idx >= 0 ? idx : 0;
+    }
+    return 0;
+  });
+
+  // Initialize template from context on mount
+  useEffect(() => {
+    if (context.selectedTemplate) {
+      setActiveTemplate(context.selectedTemplate);
+      context.setSelectedTemplate(null);
+    }
+
+    // Load template choices
+    try {
+      const templates = getAllTemplates();
+      const choices: Array<{ label: string; template: Template | null }> = [
+        { label: "Blank configuration", template: null },
+        ...templates.map((tmpl) => ({
+          label: `${tmpl.name} ${tmpl.builtIn ? "[built-in]" : "[custom]"}`,
+          template: tmpl,
+        })),
+      ];
+      setTemplateChoices(choices);
+    } catch {
+      setTemplateChoices([{ label: "Blank configuration", template: null }]);
+    }
+  }, []);
 
   // Use refs to avoid stale closures in useKeyboard callback
   const stateRef = useRef({
     name, provider, apiKey, aiProvider, aiApiKey, model, telegramBotToken, telegramAllowFrom, step,
-    selectedDropletSizeIndex,
+    selectedDropletSizeIndex, activeTemplate,
   });
   stateRef.current = {
     name, provider, apiKey, aiProvider, aiApiKey, model, telegramBotToken, telegramAllowFrom, step,
-    selectedDropletSizeIndex,
+    selectedDropletSizeIndex, activeTemplate,
   };
 
   debugLog(`RENDER: step=${step}, apiKey.length=${apiKey?.length ?? "null"}`);
 
-  const stepList = getStepList(provider);
+  const stepList = getStepList(provider, activeTemplate);
 
   const handleConfirmFromRef = () => {
     const s = stateRef.current;
@@ -152,21 +202,22 @@ export function NewDeployment({ context }: Props) {
     }
 
     try {
+      const tmpl = s.activeTemplate;
       const config: DeploymentConfig = {
         name: s.name,
         provider: s.provider,
         createdAt: new Date().toISOString(),
         hetzner: s.provider === "hetzner" ? {
           apiKey: s.apiKey,
-          serverType: "cpx11",
-          location: "ash",
-          image: "ubuntu-24.04",
+          serverType: tmpl?.hetzner?.serverType ?? "cpx11",
+          location: tmpl?.hetzner?.location ?? "ash",
+          image: tmpl?.hetzner?.image ?? "ubuntu-24.04",
         } : undefined,
         digitalocean: s.provider === "digitalocean" ? {
           apiKey: s.apiKey,
           size: DO_DROPLET_SIZES[s.selectedDropletSizeIndex].slug,
-          region: "nyc1",
-          image: "ubuntu-24-04-x64",
+          region: tmpl?.digitalocean?.region ?? "nyc1",
+          image: tmpl?.digitalocean?.image ?? "ubuntu-24-04-x64",
         } : undefined,
         openclawConfig: undefined,
         openclawAgent: {
@@ -191,7 +242,36 @@ export function NewDeployment({ context }: Props) {
   useKeyboard((key) => {
     const currentState = stateRef.current;
     debugLog(`useKeyboard: key=${key.name}, step=${currentState.step}`);
-    if (currentState.step === "provider") {
+    if (currentState.step === "template_choice") {
+      if (key.name === "up") {
+        setSelectedTemplateIndex((prev) => Math.max(0, prev - 1));
+      } else if (key.name === "down") {
+        setSelectedTemplateIndex((prev) => Math.min(templateChoices.length - 1, prev + 1));
+      } else if (key.name === "return") {
+        const choice = templateChoices[selectedTemplateIndex];
+        if (choice) {
+          const tmpl = choice.template;
+          setActiveTemplate(tmpl);
+          if (tmpl) {
+            // Pre-fill from template
+            setProvider(tmpl.provider);
+            setSelectedProviderIndex(SUPPORTED_PROVIDERS.indexOf(tmpl.provider));
+            setAiProvider(tmpl.aiProvider);
+            const aiIdx = AI_PROVIDERS.findIndex((p) => p.name === tmpl.aiProvider);
+            setSelectedAiProviderIndex(aiIdx >= 0 ? aiIdx : 0);
+            setModel(tmpl.model);
+            if (tmpl.digitalocean) {
+              const sizeIdx = DO_DROPLET_SIZES.findIndex((s) => s.slug === tmpl.digitalocean!.size);
+              setSelectedDropletSizeIndex(sizeIdx >= 0 ? sizeIdx : 0);
+            }
+          }
+          setStep("name");
+          setError(null);
+        }
+      } else if (key.name === "escape") {
+        context.navigateTo("home");
+      }
+    } else if (currentState.step === "provider") {
       if (key.name === "up") {
         setSelectedProviderIndex((prev) => Math.max(0, prev - 1));
       } else if (key.name === "down") {
@@ -208,7 +288,11 @@ export function NewDeployment({ context }: Props) {
         setSelectedDropletSizeIndex((prev) => Math.min(DO_DROPLET_SIZES.length - 1, prev + 1));
       } else if (key.name === "return") {
         setError(null);
-        setStep("ai_provider");
+        if (currentState.activeTemplate) {
+          setStep("ai_api_key");
+        } else {
+          setStep("ai_provider");
+        }
       } else if (key.name === "escape") {
         setStep("api_key");
       }
@@ -244,7 +328,12 @@ export function NewDeployment({ context }: Props) {
       return;
     }
     setError(null);
-    setStep("provider");
+    if (activeTemplate) {
+      // Skip provider step when template is active
+      setStep("api_key");
+    } else {
+      setStep("provider");
+    }
   };
 
   const handleProviderSubmit = () => {
@@ -282,6 +371,8 @@ export function NewDeployment({ context }: Props) {
       debugLog(`  SUCCESS: Moving to next step`);
       if (provider === "digitalocean") {
         setStep("droplet_size");
+      } else if (activeTemplate) {
+        setStep("ai_api_key");
       } else {
         setStep("ai_provider");
       }
@@ -387,9 +478,45 @@ export function NewDeployment({ context }: Props) {
 
   const renderStep = () => {
     switch (step) {
+      case "template_choice":
+        return (
+          <box flexDirection="column">
+            <text fg={t.accent}>Step 1: Choose Template</text>
+            <text fg={t.fg.secondary} marginTop={1}>
+              Start from a template or blank configuration (use arrow keys and Enter):
+            </text>
+            <box
+              flexDirection="column"
+              borderStyle="single"
+              borderColor={t.border.default}
+              marginTop={1}
+              padding={1}
+            >
+              {templateChoices.map((choice, i) => {
+                const isSelected = i === selectedTemplateIndex;
+                return (
+                  <box key={choice.label} flexDirection="row" backgroundColor={isSelected ? t.selection.bg : undefined}>
+                    <text fg={isSelected ? t.selection.indicator : t.fg.primary}>
+                      {isSelected ? "> " : "  "}
+                    </text>
+                    <text fg={isSelected ? t.selection.fg : t.fg.primary}>{choice.label}</text>
+                  </box>
+                );
+              })}
+            </box>
+            <text fg={t.fg.muted} marginTop={1}>Press Enter to select, Esc to go back</text>
+          </box>
+        );
+
       case "name":
         return (
           <box flexDirection="column">
+            {activeTemplate && (
+              <box marginBottom={1} flexDirection="row">
+                <text fg={t.status.info}>Using template: </text>
+                <text fg={t.fg.primary}>{activeTemplate.name}</text>
+              </box>
+            )}
             <text fg={t.accent}>Step {currentStepNumber("name")}: Deployment Name</text>
             <text fg={t.fg.secondary} marginTop={1}>
               Enter a unique name for this deployment (lowercase, alphanumeric, hyphens allowed):
@@ -407,7 +534,11 @@ export function NewDeployment({ context }: Props) {
               onSubmit={() => handleNameSubmit()}
               onKeyDown={(e) => {
                 if (e.name === "escape") {
-                  context.navigateTo("home");
+                  if (activeTemplate) {
+                    context.navigateTo("home");
+                  } else {
+                    setStep("template_choice");
+                  }
                 }
               }}
             />
@@ -470,7 +601,7 @@ export function NewDeployment({ context }: Props) {
               }}
               onKeyDown={(e) => {
                 if (e.name === "escape") {
-                  setStep("provider");
+                  setStep(activeTemplate ? "name" : "provider");
                 }
               }}
             />
@@ -556,7 +687,11 @@ export function NewDeployment({ context }: Props) {
               onSubmit={() => handleAiApiKeySubmit()}
               onKeyDown={(e) => {
                 if (e.name === "escape") {
-                  setStep("ai_provider");
+                  if (activeTemplate) {
+                    setStep(provider === "digitalocean" ? "droplet_size" : "api_key");
+                  } else {
+                    setStep("ai_provider");
+                  }
                 }
               }}
             />

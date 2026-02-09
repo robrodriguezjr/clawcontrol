@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useRenderer } from "@opentui/react";
-import type { ViewName, Deployment } from "./types/index.js";
+import type { ViewName, Deployment, Template } from "./types/index.js";
 import { Home } from "./components/Home.js";
 import { NewDeployment } from "./components/NewDeployment.js";
 import { DeployView } from "./components/DeployView.js";
@@ -10,6 +10,7 @@ import { SSHView } from "./components/SSHView.js";
 import { LogsView } from "./components/LogsView.js";
 import { DestroyView } from "./components/DestroyView.js";
 import { HelpView } from "./components/HelpView.js";
+import { TemplatesView } from "./components/TemplatesView.js";
 import { getAllDeployments } from "./services/config.js";
 import { t } from "./theme.js";
 
@@ -18,6 +19,8 @@ export interface AppContext {
   selectedDeployment: string | null;
   deployments: Deployment[];
   refreshDeployments: () => void;
+  selectedTemplate: Template | null;
+  setSelectedTemplate: (template: Template | null) => void;
 }
 
 export function App() {
@@ -31,6 +34,8 @@ export function App() {
       return [];
     }
   });
+
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
 
   const wasDraggingRef = useRef(false);
 
@@ -72,6 +77,8 @@ export function App() {
     selectedDeployment,
     deployments,
     refreshDeployments,
+    selectedTemplate,
+    setSelectedTemplate,
   };
 
   const renderView = () => {
@@ -94,6 +101,8 @@ export function App() {
         return <DestroyView context={context} />;
       case "help":
         return <HelpView context={context} />;
+      case "templates":
+        return <TemplatesView context={context} />;
       default:
         return <Home context={context} />;
     }

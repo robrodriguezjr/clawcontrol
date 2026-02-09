@@ -81,6 +81,12 @@ export function HelpView({ context }: Props) {
             <text fg={t.fg.primary}>Permanently delete a deployment</text>
           </box>
           <text fg={t.fg.secondary}>            Deletes VPS, SSH keys, and local configuration</text>
+
+          <box flexDirection="row" marginTop={1}>
+            <text fg={t.accent} width={12}>/templates</text>
+            <text fg={t.fg.primary}>Manage deployment templates</text>
+          </box>
+          <text fg={t.fg.secondary}>            View, fork, and use reusable deployment presets</text>
         </box>
       </box>
 
@@ -93,11 +99,12 @@ export function HelpView({ context }: Props) {
         marginBottom={1}
       >
         <text fg={t.status.success}>Typical Workflow</text>
-        <text fg={t.fg.primary} marginTop={1}>1. Run /new to create a deployment config</text>
-        <text fg={t.fg.primary}>2. Run /deploy to deploy to the cloud</text>
-        <text fg={t.fg.primary}>3. Authenticate Tailscale when prompted</text>
-        <text fg={t.fg.primary}>4. Complete OpenClaw onboarding via SSH</text>
-        <text fg={t.fg.primary}>5. Use /status and /logs to monitor</text>
+        <text fg={t.fg.primary} marginTop={1}>1. Run /templates to browse or create reusable presets</text>
+        <text fg={t.fg.primary}>2. Run /new to create a deployment config (optionally from a template)</text>
+        <text fg={t.fg.primary}>3. Run /deploy to deploy to the cloud</text>
+        <text fg={t.fg.primary}>4. Authenticate Tailscale when prompted</text>
+        <text fg={t.fg.primary}>5. Complete OpenClaw onboarding via SSH</text>
+        <text fg={t.fg.primary}>6. Use /status and /logs to monitor</text>
       </box>
 
       {/* Supported Providers */}
@@ -114,8 +121,8 @@ export function HelpView({ context }: Props) {
           <text fg={t.fg.primary}>Hetzner Cloud - ~$4.99/mo for CPX11 (US East)</text>
         </box>
         <box flexDirection="row">
-          <text fg={t.fg.muted}>○ </text>
-          <text fg={t.fg.secondary}>DigitalOcean - Coming soon</text>
+          <text fg={t.status.success}>✓ </text>
+          <text fg={t.fg.primary}>DigitalOcean - Starting at $12/mo (NYC1)</text>
         </box>
         <box flexDirection="row">
           <text fg={t.fg.muted}>○ </text>

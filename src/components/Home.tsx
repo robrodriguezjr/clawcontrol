@@ -23,6 +23,7 @@ const COMMANDS = [
   { name: "/ssh", description: "SSH into a deployment" },
   { name: "/logs", description: "View deployment logs" },
   { name: "/destroy", description: "Destroy a deployment" },
+  { name: "/templates", description: "Manage deployment templates" },
   { name: "/help", description: "Show help" },
 ];
 
@@ -41,6 +42,7 @@ export function Home({ context }: Props) {
       "/ssh": "ssh",
       "/logs": "logs",
       "/destroy": "destroy",
+      "/templates": "templates",
       "/help": "help",
     };
 

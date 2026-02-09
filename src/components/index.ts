@@ -7,3 +7,4 @@ export { SSHView } from "./SSHView.js";
 export { LogsView } from "./LogsView.js";
 export { DestroyView } from "./DestroyView.js";
 export { HelpView } from "./HelpView.js";
+export { TemplatesView } from "./TemplatesView.js";

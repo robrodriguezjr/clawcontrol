@@ -205,6 +205,31 @@ export interface Deployment {
   sshKeyPath: string;
 }
 
+// Template types
+export const TemplateSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  builtIn: z.boolean(),
+  createdAt: z.string(),
+  provider: ProviderSchema,
+  hetzner: z.object({
+    serverType: z.string(),
+    location: z.string(),
+    image: z.string(),
+  }).optional(),
+  digitalocean: z.object({
+    size: z.string(),
+    region: z.string(),
+    image: z.string(),
+  }).optional(),
+  aiProvider: z.string().min(1),
+  model: z.string().min(1),
+  channel: z.string().default("telegram"),
+});
+
+export type Template = z.infer<typeof TemplateSchema>;
+
 // Command types
 export type CommandName =
   | "new"
@@ -213,7 +238,8 @@ export type CommandName =
   | "ssh"
   | "logs"
   | "destroy"
-  | "help";
+  | "help"
+  | "templates";
 
 export interface Command {
   name: CommandName;
@@ -231,7 +257,8 @@ export type ViewName =
   | "ssh"
   | "logs"
   | "destroy"
-  | "help";
+  | "help"
+  | "templates";
 
 export interface AppState {
   currentView: ViewName;
