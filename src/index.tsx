@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { release } from "node:os";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { App } from "./App.js";
@@ -34,12 +35,19 @@ Documentation & source:
   process.exit(0);
 }
 
+// macOS Terminal.app only gains true color support in macOS 26 (Tahoe), which
+// ships with Darwin kernel 25.x.  Earlier versions mis-render 24-bit RGB
+// escape sequences produced by the opentui native renderer.
+const isAppleTerminal = process.env.TERM_PROGRAM === "Apple_Terminal";
+const darwinMajor = process.platform === "darwin" ? parseInt(release(), 10) : Infinity;
+const lacksTrueColor = isAppleTerminal && darwinMajor < 25;
+
 async function main() {
   const renderer = await createCliRenderer({
     useMouse: true,
   });
   const root = createRoot(renderer);
-  root.render(<App />);
+  root.render(<App lacksTrueColor={lacksTrueColor} />);
 }
 
 main().catch(console.error);

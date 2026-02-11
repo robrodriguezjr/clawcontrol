@@ -32,7 +32,7 @@ export interface AppContext {
   setEditingDeployment: (ed: EditingDeployment | null) => void;
 }
 
-export function App() {
+export function App({ lacksTrueColor }: { lacksTrueColor?: boolean }) {
   const renderer = useRenderer();
   const [currentView, setCurrentView] = useState<ViewName>("home");
   const [selectedDeployment, setSelectedDeployment] = useState<string | null>(null);
@@ -145,6 +145,22 @@ export function App() {
         showArrows: false,
       }}
     >
+      {lacksTrueColor && (
+        <box
+          width="100%"
+          style={{
+            paddingLeft: 1,
+            paddingRight: 1,
+            paddingTop: 0,
+            paddingBottom: 0,
+            backgroundColor: t.status.warning,
+          }}
+        >
+          <text fg="#000000">
+            {"⚠ Your terminal does not support true color. Colors may look wrong. For full color support, use Ghostty, iTerm2, Kitty, or WezTerm — or upgrade to macOS 26+ for Terminal.app true color support."}
+          </text>
+        </box>
+      )}
       {renderView()}
     </scrollbox>
   );
