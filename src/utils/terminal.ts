@@ -17,6 +17,9 @@ export type TerminalApp =
   | "konsole"           // KDE Konsole
   | "xfce4-terminal"    // XFCE Terminal
   | "xterm"             // XTerm
+  | "windows-terminal"  // Windows Terminal (wt.exe)
+  | "powershell"        // PowerShell / pwsh
+  | "cmd"               // Command Prompt
   | "unknown";
 
 interface TerminalInfo {
@@ -121,6 +124,16 @@ export function detectTerminal(): TerminalInfo {
     }
   }
 
+  // Windows terminals
+  if (os === "win32") {
+    // Windows Terminal sets WT_SESSION
+    if (env.WT_SESSION) {
+      return { app: "windows-terminal", canOpenTab: true };
+    }
+    // PowerShell is always available on modern Windows
+    return { app: "powershell", canOpenTab: false };
+  }
+
   // Default fallback based on OS
   if (os === "darwin") {
     return { app: "terminal.app", canOpenTab: true };
@@ -174,11 +187,22 @@ export function openTerminalWithCommand(command: string): { success: boolean; er
       case "xfce4-terminal":
         return openXfce4Terminal(command);
 
+      case "windows-terminal":
+        return openWindowsTerminal(command);
+
+      case "powershell":
+        return openPowerShell(command);
+
+      case "cmd":
+        return openCmd(command);
+
       default:
         if (os === "darwin") {
           return openTerminalApp(command);
         } else if (os === "linux") {
           return openLinuxFallback(command);
+        } else if (os === "win32") {
+          return openWindowsFallback(command);
         }
         return { success: false, error: `Unsupported terminal or OS: ${terminal.app}` };
     }
@@ -416,6 +440,11 @@ function openCursorTerminal(command: string): { success: boolean; error?: string
     return openTerminalApp(command);
   }
 
+  // Windows: Fall back to system terminal
+  if (platform() === "win32") {
+    return openWindowsFallback(command);
+  }
+
   // Linux: Fall back to system terminal
   return openLinuxFallback(command);
 }
@@ -502,6 +531,72 @@ function openLinuxFallback(command: string): { success: boolean; error?: string 
 }
 
 /**
+ * Write a command to a temporary Windows batch script.
+ */
+function createTempScriptWindows(command: string): string {
+  const scriptPath = join(tmpdir(), `clawcontrol-${process.pid}-${Date.now()}.cmd`);
+  const content = [
+    "@echo off",
+    command,
+    `del "${scriptPath}"`,
+    "",
+  ].join("\r\n");
+  writeFileSync(scriptPath, content);
+  return scriptPath;
+}
+
+function openWindowsTerminal(command: string): { success: boolean; error?: string } {
+  const script = createTempScriptWindows(command);
+  // wt.exe opens a new tab in Windows Terminal
+  const proc = spawn("wt.exe", ["new-tab", "cmd", "/c", script], {
+    stdio: "ignore",
+    detached: true,
+    shell: true,
+  });
+  proc.unref();
+  return { success: true };
+}
+
+function openPowerShell(command: string): { success: boolean; error?: string } {
+  // Open a new PowerShell window with the SSH command
+  const proc = spawn("powershell.exe", [
+    "-NoProfile",
+    "Start-Process", "powershell",
+    "-ArgumentList", `'-NoExit -Command "${command.replace(/"/g, '`"')}"'`,
+  ], {
+    stdio: "ignore",
+    detached: true,
+    shell: true,
+  });
+  proc.unref();
+  return { success: true };
+}
+
+function openCmd(command: string): { success: boolean; error?: string } {
+  const script = createTempScriptWindows(command);
+  const proc = spawn("cmd.exe", ["/c", "start", "cmd", "/k", script], {
+    stdio: "ignore",
+    detached: true,
+    shell: true,
+  });
+  proc.unref();
+  return { success: true };
+}
+
+function openWindowsFallback(command: string): { success: boolean; error?: string } {
+  // Try Windows Terminal first, then PowerShell
+  try {
+    const result = spawnSync("where", ["wt.exe"], { stdio: "pipe", timeout: 2000 });
+    if (result.status === 0) {
+      return openWindowsTerminal(command);
+    }
+  } catch {
+    // wt.exe not found
+  }
+  return openPowerShell(command);
+}
+
+/**
  * Get a human-readable name for the detected terminal
  */
 export function getTerminalDisplayName(app: TerminalApp): string {
@@ -519,6 +614,9 @@ export function getTerminalDisplayName(app: TerminalApp): string {
     "konsole": "Konsole",
     "xfce4-terminal": "XFCE Terminal",
     "xterm": "XTerm",
+    "windows-terminal": "Windows Terminal",
+    "powershell": "PowerShell",
+    "cmd": "Command Prompt",
     "unknown": "System Terminal",
   };
   return names[app];
