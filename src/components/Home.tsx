@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { useKeyboard } from "@opentui/react";
 import type { AppContext } from "../App.js";
 import type { ViewName } from "../types/index.js";
 import { t, statusColor } from "../theme.js";
@@ -32,23 +33,31 @@ const COMMANDS = [
 export function Home({ context }: Props) {
   const [inputValue, setInputValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
+
+  const viewMap: Record<string, ViewName> = {
+    "/new": "new",
+    "/list": "list",
+    "/deploy": "deploy",
+    "/status": "status",
+    "/ssh": "ssh",
+    "/logs": "logs",
+    "/dashboard": "dashboard",
+    "/destroy": "destroy",
+    "/templates": "templates",
+    "/help": "help",
+  };
+
+  const filteredCommands = inputValue.length >= 2 && inputValue.startsWith("/")
+    ? COMMANDS.filter((cmd) => cmd.name.startsWith(inputValue.toLowerCase()))
+    : [];
+
+  const stateRef = useRef({ selectedSuggestionIndex, filteredCommands, inputValue });
+  stateRef.current = { selectedSuggestionIndex, filteredCommands, inputValue };
 
   const handleCommand = (command: string) => {
     const cmd = command.trim().toLowerCase();
     setError(null);
-
-    const viewMap: Record<string, ViewName> = {
-      "/new": "new",
-      "/list": "list",
-      "/deploy": "deploy",
-      "/status": "status",
-      "/ssh": "ssh",
-      "/logs": "logs",
-      "/dashboard": "dashboard",
-      "/destroy": "destroy",
-      "/templates": "templates",
-      "/help": "help",
-    };
 
     if (viewMap[cmd]) {
       context.navigateTo(viewMap[cmd]);
@@ -56,6 +65,30 @@ export function Home({ context }: Props) {
       setError(`Unknown command: ${cmd}. Type /help for available commands.`);
     }
   };
+
+  useKeyboard((key) => {
+    const s = stateRef.current;
+    if (s.filteredCommands.length === 0) return;
+
+    if (key.name === "down") {
+      setSelectedSuggestionIndex((prev) =>
+        prev < s.filteredCommands.length - 1 ? prev + 1 : 0
+      );
+    } else if (key.name === "up") {
+      setSelectedSuggestionIndex((prev) =>
+        prev > 0 ? prev - 1 : s.filteredCommands.length - 1
+      );
+    } else if (key.name === "tab") {
+      if (s.selectedSuggestionIndex >= 0 && s.selectedSuggestionIndex < s.filteredCommands.length) {
+        const cmd = s.filteredCommands[s.selectedSuggestionIndex].name;
+        setInputValue("");
+        setSelectedSuggestionIndex(-1);
+        handleCommand(cmd);
+      }
+    } else if (key.name === "escape") {
+      setSelectedSuggestionIndex(-1);
+    }
+  });
 
   return (
     <box flexDirection="column" width="100%" height="100%">
@@ -160,9 +193,21 @@ export function Home({ context }: Props) {
               placeholder="Type a command (e.g., /new)..."
               focused
               width="100%"
-              onInput={(value) => setInputValue(value)}
+              onInput={(value) => {
+                setInputValue(value);
+                const matches = value.length >= 2 && value.startsWith("/")
+                  ? COMMANDS.filter((cmd) => cmd.name.startsWith(value.toLowerCase()))
+                  : [];
+                setSelectedSuggestionIndex(matches.length > 0 ? 0 : -1);
+              }}
               onSubmit={(value) => {
-                if (typeof value === "string" && typeof value.trim === "function" && value.trim()) {
+                const s = stateRef.current;
+                if (s.selectedSuggestionIndex >= 0 && s.selectedSuggestionIndex < s.filteredCommands.length) {
+                  const cmd = s.filteredCommands[s.selectedSuggestionIndex].name;
+                  setInputValue("");
+                  setSelectedSuggestionIndex(-1);
+                  handleCommand(cmd);
+                } else if (typeof value === "string" && typeof value.trim === "function" && value.trim()) {
                   handleCommand(value as string);
                   setInputValue("");
                 }
@@ -170,6 +215,22 @@ export function Home({ context }: Props) {
             />
           </box>
         </box>
+        {filteredCommands.length > 0 && (
+          <box flexDirection="column" paddingLeft={1} backgroundColor={t.bg.elevated}>
+            {filteredCommands.map((cmd, i) => {
+              const selected = i === selectedSuggestionIndex;
+              return (
+                <box key={cmd.name} flexDirection="row" height={1} overflow="hidden" backgroundColor={selected ? t.selection.bg : t.bg.elevated}>
+                  <text fg={selected ? t.selection.indicator : t.fg.muted}>
+                    {selected ? "> " : "  "}
+                  </text>
+                  <text fg={selected ? t.accent : t.fg.primary} width={14}>{cmd.name}</text>
+                  <text fg={t.fg.secondary}>{cmd.description}</text>
+                </box>
+              );
+            })}
+          </box>
+        )}
       </box>
     </box>
   );
