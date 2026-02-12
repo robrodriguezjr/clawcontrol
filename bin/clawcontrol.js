@@ -8,7 +8,6 @@ import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { readFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 
@@ -47,15 +46,12 @@ async function fetchLatestVersion(timeoutMs = 3000) {
 }
 
 /** Run bun add -g clawcontrol@latest. Returns true on success. */
-function performUpdate() {
+function performUpdate(targetVersion) {
   try {
     execFileSync("bun", ["add", "-g", "clawcontrol@latest"], {
       stdio: "pipe",
     });
-    // Verify the new version by re-reading package.json from disk
-    const pkgPath = resolve(dirname(fileURLToPath(import.meta.url)), "../package.json");
-    const newPkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    console.log(`\x1b[32m[update] Updated to v${newPkg.version}\x1b[0m`);
+    console.log(`\x1b[32m[update] Updated to v${targetVersion}\x1b[0m`);
     return true;
   } catch (e) {
     if (e.code === "ENOENT") {
@@ -120,7 +116,7 @@ if (args.includes("--update") || args.includes("-u")) {
   }
   console.log(`\x1b[36m[update] New version available: v${currentVersion} -> v${latest}\x1b[0m`);
   console.log("\x1b[36m[update] Updating clawcontrol...\x1b[0m");
-  const ok = performUpdate();
+  const ok = performUpdate(latest);
   process.exit(ok ? 0 : 1);
 }
 
@@ -131,11 +127,12 @@ if (process.env.CLAWCONTROL_SKIP_UPDATE !== "1") {
   if (latest !== null && compareSemver(currentVersion, latest) < 0) {
     console.log(`\x1b[36m[update] New version available: v${currentVersion} -> v${latest}\x1b[0m`);
     console.log("\x1b[36m[update] Updating clawcontrol...\x1b[0m");
-    const ok = performUpdate();
+    const ok = performUpdate(latest);
     if (ok) {
       console.log("\x1b[36m[update] Restarting with updated version...\x1b[0m");
       try {
-        execFileSync(process.argv[0], process.argv.slice(1), {
+        // Re-exec via command name so PATH resolves to the newly installed binary
+        execFileSync("clawcontrol", args, {
           stdio: "inherit",
           env: { ...process.env, CLAWCONTROL_SKIP_UPDATE: "1" },
         });
