@@ -48,6 +48,23 @@ const BUILT_IN_TEMPLATES: Template[] = [
     model: "moonshotai/kimi-k2.5",
     channel: "telegram",
   },
+  {
+    id: "beacon24-concierge-hetzner",
+    name: "Beacon24 Concierge (Hetzner)",
+    description:
+      "Deploy a Beacon24 Concierge personal AI on Hetzner Cloud with OpenRouter. Pre-configured for 1:1 client assistants.",
+    builtIn: true,
+    createdAt: "2026-02-22T00:00:00.000Z",
+    provider: "hetzner",
+    hetzner: {
+      serverType: "cpx11",
+      location: "ash",
+      image: "ubuntu-24.04",
+    },
+    aiProvider: "openrouter",
+    model: "openrouter/anthropic/claude-haiku-4-5",
+    channel: "telegram",
+  },
 ];
 
 export function ensureTemplatesDir(): void {
