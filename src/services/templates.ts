@@ -62,7 +62,7 @@ const BUILT_IN_TEMPLATES: Template[] = [
       image: "ubuntu-24.04",
     },
     aiProvider: "openrouter",
-    model: "openrouter/anthropic/claude-haiku-4-5",
+    model: "anthropic/claude-haiku-4-5",
     channel: "telegram",
   },
 ];
