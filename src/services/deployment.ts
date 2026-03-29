@@ -784,9 +784,12 @@ export class DeploymentOrchestrator {
       const freshSsh = await this.ensureSSHConnected();
       await new Promise((resolve) => setTimeout(resolve, 3000));
 
-      const statusResult = await freshSsh.exec("systemctl is-active openclaw || true");
+      const statusResult = await freshSsh.exec(
+        "systemctl --user is-active openclaw-gateway 2>/dev/null || " +
+        "systemctl is-active openclaw-gateway 2>/dev/null || true"
+      );
       if (!statusResult.stdout.includes("active")) {
-        await freshSsh.exec("systemctl restart openclaw || true");
+        await freshSsh.exec("source ~/.nvm/nvm.sh && openclaw gateway restart || true");
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }

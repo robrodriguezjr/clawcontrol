@@ -536,78 +536,66 @@ EOFENV`,
 }
 
 /**
- * Programmatically install and enable the OpenClaw systemd daemon service
+ * Install and enable the OpenClaw gateway daemon service.
+ *
+ * Delegates to OpenClaw's native `openclaw gateway start`, which creates and
+ * manages a user-level systemd service (`openclaw-gateway.service`).
+ *
+ * Also cleans up any legacy system-level `openclaw.service` to prevent
+ * dual-service conflicts (two services competing for the same port).
  */
 export async function installOpenClawDaemon(ssh: SSHConnection): Promise<void> {
   const nvmPrefix = "source ~/.nvm/nvm.sh &&";
 
-  // Resolve the openclaw binary path
-  const whichResult = await ssh.exec(`${nvmPrefix} which openclaw`);
-  if (whichResult.code !== 0 || !whichResult.stdout.trim()) {
-    throw new Error("OpenClaw binary not found. Is it installed?");
+  // Clean up legacy system-level service if it exists.
+  // Older versions of ClawControl created /etc/systemd/system/openclaw.service
+  // which conflicts with OpenClaw's native user-level openclaw-gateway.service.
+  const legacyCheck = await ssh.exec("systemctl is-enabled openclaw 2>/dev/null || true");
+  if (legacyCheck.stdout.trim() === "enabled" || legacyCheck.stdout.trim() === "disabled") {
+    await ssh.exec("systemctl disable --now openclaw 2>/dev/null || true");
+    await ssh.exec("rm -f /etc/systemd/system/openclaw.service");
+    await ssh.exec("systemctl daemon-reload");
   }
-  const openclawBin = whichResult.stdout.trim();
 
-  // Resolve the node binary path (needed for the service)
-  const nodeResult = await ssh.exec(`${nvmPrefix} which node`);
-  if (nodeResult.code !== 0 || !nodeResult.stdout.trim()) {
-    throw new Error("Node binary not found.");
-  }
-  const nodeBin = nodeResult.stdout.trim();
-  const nodeBinDir = nodeBin.substring(0, nodeBin.lastIndexOf("/"));
-
-  // Build the systemd service unit
-  const serviceUnit = `[Unit]
-Description=OpenClaw Gateway
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/root
-EnvironmentFile=/root/.openclaw/.env
-Environment=PATH=${nodeBinDir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=HOME=/root
-Environment=NVM_DIR=/root/.nvm
-ExecStart=${openclawBin} gateway --port 18789
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-`;
-
-  // Write the service file
+  // Let OpenClaw handle service creation natively.
+  // `openclaw gateway start` creates ~/.config/systemd/user/openclaw-gateway.service
+  // with proper version tracking, environment inlining, and restart policies.
   await execOrFail(
     ssh,
-    `cat > /etc/systemd/system/openclaw.service << 'EOFSERVICE'
-${serviceUnit}
-EOFSERVICE`,
-    "Failed to write OpenClaw systemd service"
+    `${nvmPrefix} openclaw gateway start`,
+    "Failed to start OpenClaw gateway service"
   );
 
-  // Reload systemd
-  await execOrFail(ssh, "systemctl daemon-reload", "Failed to reload systemd");
-
-  // Enable the service
-  await execOrFail(ssh, "systemctl enable openclaw", "Failed to enable OpenClaw service");
+  // Wait for the gateway to stabilize
+  await new Promise((resolve) => setTimeout(resolve, 5000));
 }
 
 /**
- * Start the OpenClaw daemon and verify it is running
+ * Start the OpenClaw daemon and verify it is running.
+ * Uses OpenClaw's native gateway management.
  */
 export async function startOpenClawDaemon(ssh: SSHConnection): Promise<void> {
-  await execOrFail(ssh, "systemctl start openclaw", "Failed to start OpenClaw daemon");
+  const nvmPrefix = "source ~/.nvm/nvm.sh &&";
+
+  await execOrFail(
+    ssh,
+    `${nvmPrefix} openclaw gateway start`,
+    "Failed to start OpenClaw daemon"
+  );
 
   // Wait a moment for service to stabilize
-  await new Promise((resolve) => setTimeout(resolve, 3000));
+  await new Promise((resolve) => setTimeout(resolve, 5000));
 
   // Verify the daemon is running
-  const statusResult = await ssh.exec("systemctl is-active openclaw || true");
+  const statusResult = await ssh.exec(
+    "systemctl --user is-active openclaw-gateway 2>/dev/null || " +
+    "systemctl is-active openclaw-gateway 2>/dev/null || true"
+  );
   if (!statusResult.stdout.includes("active")) {
-    const logs = await ssh.exec("journalctl -u openclaw -n 20 --no-pager || true");
+    const logs = await ssh.exec(
+      "journalctl --user -u openclaw-gateway -n 20 --no-pager 2>/dev/null || " +
+      "journalctl -u openclaw-gateway -n 20 --no-pager 2>/dev/null || true"
+    );
     throw new Error(`OpenClaw daemon not running after start. Logs: ${logs.stdout}`);
   }
 }
@@ -635,16 +623,19 @@ export async function pairTelegramChannel(ssh: SSHConnection): Promise<string> {
 }
 
 /**
- * Start OpenClaw as a daemon service
- * Note: This is now handled interactively via `openclaw onboard --install-daemon`
- * This function just verifies the daemon is running after interactive setup
+ * Verify that the OpenClaw gateway daemon is running.
+ * Checks user-level openclaw-gateway.service (OpenClaw's native service).
  */
 export async function verifyOpenClawDaemon(ssh: SSHConnection): Promise<void> {
-  // Verify daemon is running
-  const statusResult = await ssh.exec("systemctl is-active openclaw || true");
+  const statusResult = await ssh.exec(
+    "systemctl --user is-active openclaw-gateway 2>/dev/null || " +
+    "systemctl is-active openclaw-gateway 2>/dev/null || true"
+  );
   if (!statusResult.stdout.includes("active")) {
-    // Check logs for errors
-    const logs = await ssh.exec("journalctl -u openclaw -n 30 --no-pager || true");
+    const logs = await ssh.exec(
+      "journalctl --user -u openclaw-gateway -n 30 --no-pager 2>/dev/null || " +
+      "journalctl -u openclaw-gateway -n 30 --no-pager 2>/dev/null || true"
+    );
     throw new Error(`OpenClaw daemon is not running. Logs: ${logs.stdout || logs.stderr}`);
   }
 }
@@ -653,7 +644,10 @@ export async function verifyOpenClawDaemon(ssh: SSHConnection): Promise<void> {
  * Check if OpenClaw daemon is running
  */
 export async function isOpenClawRunning(ssh: SSHConnection): Promise<boolean> {
-  const result = await ssh.exec("systemctl is-active openclaw");
+  const result = await ssh.exec(
+    "systemctl --user is-active openclaw-gateway 2>/dev/null || " +
+    "systemctl is-active openclaw-gateway 2>/dev/null || true"
+  );
   return result.stdout.trim() === "active";
 }
 
@@ -664,7 +658,10 @@ export async function getOpenClawLogs(
   ssh: SSHConnection,
   lines: number = 100
 ): Promise<string> {
-  const result = await ssh.exec(`journalctl -u openclaw -n ${lines} --no-pager`);
+  const result = await ssh.exec(
+    `journalctl --user -u openclaw-gateway -n ${lines} --no-pager 2>/dev/null || ` +
+    `journalctl -u openclaw-gateway -n ${lines} --no-pager 2>/dev/null || true`
+  );
   return result.stdout;
 }
 
@@ -672,9 +669,10 @@ export async function getOpenClawLogs(
  * Restart OpenClaw daemon
  */
 export async function restartOpenClawDaemon(ssh: SSHConnection): Promise<void> {
+  const nvmPrefix = "source ~/.nvm/nvm.sh &&";
   await execOrFail(
     ssh,
-    "systemctl restart openclaw",
+    `${nvmPrefix} openclaw gateway restart`,
     "Failed to restart OpenClaw daemon"
   );
 }
@@ -722,7 +720,8 @@ export async function getDashboardUrl(
 
   // Strategy 3: Verify gateway is running at all
   const statusResult = await ssh.exec(
-    "systemctl is-active openclaw 2>/dev/null || true"
+    "systemctl --user is-active openclaw-gateway 2>/dev/null || " +
+    "systemctl is-active openclaw-gateway 2>/dev/null || true"
   );
   if (statusResult.stdout.trim() !== "active") {
     throw new Error("OpenClaw gateway is not running on this server");
