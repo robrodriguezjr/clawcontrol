@@ -448,7 +448,7 @@ export class DeploymentOrchestrator {
     this.reportProgress("server_created", "Creating VPS server...");
     const result = await client.createServer({
       name: config.name,
-      server_type: config.hetzner.serverType || "cpx11",
+      server_type: config.hetzner.serverType || "cx21",
       image: config.hetzner.image || "ubuntu-24.04",
       location: config.hetzner.location || "ash",
       ssh_keys: [sshKey.id],

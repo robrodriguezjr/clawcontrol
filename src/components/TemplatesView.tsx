@@ -119,7 +119,7 @@ export function TemplatesView({ context }: Props) {
       createdAt: new Date().toISOString(),
       provider: s.forkProvider,
       hetzner: s.forkProvider === "hetzner"
-        ? (source?.hetzner ?? { serverType: "cpx11", location: "ash", image: "ubuntu-24.04" })
+        ? (source?.hetzner ?? { serverType: "cx21", location: "ash", image: "ubuntu-24.04" })
         : undefined,
       digitalocean: s.forkProvider === "digitalocean"
         ? {

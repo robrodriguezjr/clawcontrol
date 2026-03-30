@@ -379,7 +379,7 @@ export function NewDeployment({ context }: Props) {
         createdAt: s.editingConfig?.createdAt ?? new Date().toISOString(),
         hetzner: s.provider === "hetzner" ? {
           apiKey: s.apiKey,
-          serverType: tmpl?.hetzner?.serverType ?? "cpx11",
+          serverType: tmpl?.hetzner?.serverType ?? "cx21",
           location: tmpl?.hetzner?.location ?? "ash",
           image: tmpl?.hetzner?.image ?? "ubuntu-24.04",
         } : undefined,
@@ -852,7 +852,7 @@ export function NewDeployment({ context }: Props) {
       const size = DO_DROPLET_SIZES[selectedDropletSizeIndex];
       return `${size.slug} (${size.label})`;
     }
-    return "CPX11 (2 vCPU, 2GB RAM, 40GB SSD)";
+    return "CX21 (2 vCPU, 4GB RAM, 40GB SSD)";
   };
 
   const getLocationLabel = (): string => {
