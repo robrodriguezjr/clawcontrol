@@ -23,7 +23,7 @@ const BUILT_IN_TEMPLATES: Template[] = [
     createdAt: "2025-01-01T00:00:00.000Z",
     provider: "hetzner",
     hetzner: {
-      serverType: "cx21",
+      serverType: "cpx21",
       location: "ash",
       image: "ubuntu-24.04",
     },
@@ -57,7 +57,7 @@ const BUILT_IN_TEMPLATES: Template[] = [
     createdAt: "2026-02-22T00:00:00.000Z",
     provider: "hetzner",
     hetzner: {
-      serverType: "cx21",
+      serverType: "cpx21",
       location: "ash",
       image: "ubuntu-24.04",
     },

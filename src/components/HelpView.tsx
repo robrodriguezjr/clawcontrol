@@ -118,7 +118,7 @@ export function HelpView({ context }: Props) {
         <text fg={t.fg.primary}>Supported Cloud Providers</text>
         <box flexDirection="row" marginTop={1}>
           <text fg={t.status.success}>✓ </text>
-          <text fg={t.fg.primary}>Hetzner Cloud - ~$5.49/mo for CX21 (US East)</text>
+          <text fg={t.fg.primary}>Hetzner Cloud - ~$7.49/mo for CPX21 (US East)</text>
         </box>
         <box flexDirection="row">
           <text fg={t.status.success}>✓ </text>

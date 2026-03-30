@@ -73,7 +73,7 @@ export interface Checkpoint {
 // Hetzner-specific config
 export const HetznerConfigSchema = z.object({
   apiKey: z.string().min(1, "Hetzner API key is required"),
-  serverType: z.string().default("cx21"),
+  serverType: z.string().default("cpx21"),
   location: z.string().default("ash"),
   image: z.string().default("ubuntu-24.04"),
 });

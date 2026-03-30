@@ -87,7 +87,7 @@ export function DeployView({ context }: Props) {
           <text fg={t.fg.primary}>• Create a VPS on {selectedDeployment.config.provider}</text>
           <text fg={t.fg.primary}>• Install and configure OpenClaw</text>
           <text fg={t.fg.primary}>• Set up Tailscale for secure access</text>
-          <text fg={t.fg.secondary} marginTop={1}>Estimated cost: ~$5.49/month (Hetzner CX21)</text>
+          <text fg={t.fg.secondary} marginTop={1}>Estimated cost: ~$7.49/month (Hetzner CPX21)</text>
         </box>
 
         <text fg={t.status.warning} marginTop={2}>Press Y to confirm, N to cancel</text>
