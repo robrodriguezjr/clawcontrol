@@ -259,8 +259,16 @@ fi
 # ─── Install ClawControl ───────────────────────────────────────────────────
 step "Installing ClawControl"
 
-# Prefer bun for install since it's already verified above
-PKG_INSTALL_CMD="bun add -g clawcontrol"
+# Install from our fork's GitHub repo (not npm registry)
+FORK_REPO="robrodriguezjr/clawcontrol"
+info "Installing from GitHub fork: ${FORK_REPO}"
+
+# Try npm first (more reliable for GitHub installs), fall back to bun
+if command -v npm &>/dev/null; then
+  PKG_INSTALL_CMD="npm install -g github:${FORK_REPO}"
+else
+  PKG_INSTALL_CMD="bun add -g github:${FORK_REPO}"
+fi
 
 info "Running: ${PKG_INSTALL_CMD}"
 $PKG_INSTALL_CMD

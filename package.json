@@ -1,6 +1,6 @@
 {
   "name": "clawcontrol",
-  "version": "0.2.3",
+  "version": "0.2.5",
   "description": "CLI tool for deploying and managing OpenClaw instances on VPS providers",
   "type": "module",
   "main": "dist/index.js",
@@ -40,7 +40,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ipenywis/clawcontrol.git"
+    "url": "git+https://github.com/robrodriguezjr/clawcontrol.git"
   },
   "homepage": "https://github.com/ipenywis/clawcontrol#readme",
   "bugs": {

@@ -81,8 +81,20 @@ function seedBuiltInTemplates(): void {
   ensureTemplatesDir();
   for (const template of BUILT_IN_TEMPLATES) {
     const path = getTemplatePath(template.id);
+    const content = JSON.stringify(template, null, 2);
+    // Always overwrite built-in templates to pick up code changes
+    // (e.g. server type updates). User templates (builtIn: false) are never touched.
     if (!existsSync(path)) {
-      writeFileSync(path, JSON.stringify(template, null, 2));
+      writeFileSync(path, content);
+    } else {
+      try {
+        const existing = readFileSync(path, "utf-8");
+        if (existing !== content) {
+          writeFileSync(path, content);
+        }
+      } catch {
+        writeFileSync(path, content);
+      }
     }
   }
 }
