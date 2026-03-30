@@ -122,7 +122,7 @@ if (args.includes("--update") || args.includes("-u")) {
 
 // ── Auto-update on startup ───────────────────────────────────────────
 
-if (process.env.CLAWCONTROL_SKIP_UPDATE !== "1") {
+if (process.env.CLAWCONTROL_SKIP_UPDATE !== "1" && pkg.repository?.url?.includes("ipenywis")) {
   const latest = await fetchLatestVersion(3000);
   if (latest !== null && compareSemver(currentVersion, latest) < 0) {
     console.log(`\x1b[36m[update] New version available: v${currentVersion} -> v${latest}\x1b[0m`);
